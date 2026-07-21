@@ -17,7 +17,6 @@ use codex_cli::run_login_with_access_token;
 use codex_cli::run_login_with_api_key;
 use codex_cli::run_login_with_chatgpt;
 use codex_cli::run_login_with_device_code;
-use codex_cli::run_login_with_feishu;
 use codex_cli::run_logout;
 use codex_cloud_tasks::Cli as CloudTasksCli;
 use codex_exec::Cli as ExecCli;
@@ -486,12 +485,6 @@ struct LoginCommand {
 
     #[arg(long = "device-auth")]
     use_device_code: bool,
-
-    #[arg(
-        long,
-        help = "Sign in to LetsLLM with Feishu, then securely save the generated API key"
-    )]
-    feishu: bool,
 
     /// EXPERIMENTAL: Use custom OAuth issuer base URL (advanced)
     /// Override the OAuth issuer base URL (advanced)
@@ -1358,18 +1351,9 @@ async fn cli_main(
                     run_login_status(login_cli.config_overrides).await;
                 }
                 None => {
-                    let login_source_count = [
-                        login_cli.with_api_key,
-                        login_cli.with_access_token,
-                        login_cli.use_device_code,
-                        login_cli.feishu,
-                    ]
-                    .into_iter()
-                    .filter(|selected| *selected)
-                    .count();
-                    if login_source_count > 1 {
+                    if login_cli.with_api_key && login_cli.with_access_token {
                         eprintln!(
-                            "Choose one login credential source: --with-api-key, --with-access-token, --device-auth, or --feishu."
+                            "Choose one login credential source: --with-api-key or --with-access-token."
                         );
                         std::process::exit(1);
                     } else if login_cli.use_device_code {
@@ -1390,8 +1374,6 @@ async fn cli_main(
                     } else if login_cli.with_access_token {
                         let access_token = read_access_token_from_stdin();
                         run_login_with_access_token(login_cli.config_overrides, access_token).await;
-                    } else if login_cli.feishu {
-                        run_login_with_feishu(login_cli.config_overrides).await;
                     } else {
                         run_login_with_chatgpt(login_cli.config_overrides).await;
                     }

@@ -2410,7 +2410,6 @@ dependencies = [
  "tracing-subscriber",
  "unicode-segmentation",
  "url",
- "webbrowser",
  "which 8.0.0",
  "windows-sys 0.52.0",
  "wiremock",

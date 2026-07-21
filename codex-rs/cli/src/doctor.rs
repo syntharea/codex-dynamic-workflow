@@ -2639,7 +2639,7 @@ fn provider_reachability_plan_from_parts(
 ) -> ReachabilityPlan {
     let provider_route_probe_url = provider_base_url
         .or_else(|| {
-            (mode == ProviderAuthReachabilityMode::ApiKey).then_some("https://api.letsllm.com/v1")
+            (mode == ProviderAuthReachabilityMode::ApiKey).then_some("https://api.openai.com/v1")
         })
         .and_then(|url| {
             should_probe_models_route(provider_name, url, is_amazon_bedrock)
@@ -2649,7 +2649,7 @@ fn provider_reachability_plan_from_parts(
         ProviderAuthReachabilityMode::ApiKey => vec![ReachabilityEndpoint {
             label: format!("{provider_id} API"),
             url: provider_base_url
-                .unwrap_or("https://api.letsllm.com/v1")
+                .unwrap_or("https://api.openai.com/v1")
                 .to_string(),
             required: true,
             route_probe_url: provider_route_probe_url,
@@ -2784,7 +2784,7 @@ async fn provider_reachability_check(plan: ReachabilityPlan) -> DoctorCheck {
                     )
                     .measured(format!("{route_probe_url} returned {status}"))
                     .expected("GET /models returns 2xx, 401, or 403")
-                    .remedy("Set base_url to the provider API root, for example https://api.letsllm.com/v1")
+                    .remedy("Set base_url to the provider API root, for example https://api.openai.com/v1")
                     .field("route probe"),
                 );
             }
@@ -3709,9 +3709,9 @@ mod tests {
             plan.endpoints,
             vec![ReachabilityEndpoint {
                 label: "openai API".to_string(),
-                url: "https://api.letsllm.com/v1".to_string(),
+                url: "https://api.openai.com/v1".to_string(),
                 required: true,
-                route_probe_url: Some("https://api.letsllm.com/v1/models".to_string()),
+                route_probe_url: Some("https://api.openai.com/v1/models".to_string()),
             }]
         );
     }
@@ -3771,7 +3771,7 @@ mod tests {
         assert_eq!(check.issues.len(), 1);
         assert_eq!(
             check.issues[0].remedy.as_deref(),
-            Some("Set base_url to the provider API root, for example https://api.letsllm.com/v1")
+            Some("Set base_url to the provider API root, for example https://api.openai.com/v1")
         );
     }
 
