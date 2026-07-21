@@ -13,6 +13,7 @@ use codex_protocol::protocol::ResumedHistory;
 use codex_protocol::protocol::SessionContextWindow;
 use codex_protocol::protocol::SessionMeta;
 use codex_protocol::protocol::SessionMetaLine;
+use codex_protocol::protocol::WorkflowStateItem;
 use codex_protocol::protocol::WorldStateItem;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -108,6 +109,71 @@ fn completed_user_turn_rollout(
 }
 
 #[tokio::test]
+async fn reconstructs_latest_workflow_snapshot_without_projecting_into_history() {
+    let (session, turn_context) = make_session_and_context().await;
+    let first = WorkflowStateItem::try_new(
+        /*schema_version*/ 1,
+        "wf_123",
+        json!({"state": "running", "revision": 1}),
+    )
+    .expect("first workflow snapshot");
+    let latest = WorkflowStateItem::try_new(
+        /*schema_version*/ 1,
+        "wf_123",
+        json!({"state": "completed", "revision": 2}),
+    )
+    .expect("latest workflow snapshot");
+    let assistant_item = assistant_message("not workflow state");
+
+    let reconstructed = session
+        .reconstruct_history_from_rollout(
+            &turn_context,
+            &[
+                RolloutItem::WorkflowState(first),
+                RolloutItem::ResponseItem(assistant_item.clone()),
+                RolloutItem::WorkflowState(latest.clone()),
+            ],
+        )
+        .await;
+
+    assert_eq!(reconstructed.history, vec![assistant_item]);
+    assert_eq!(
+        reconstructed.workflow_snapshots.get("wf_123"),
+        Some(&latest)
+    );
+}
+
+#[tokio::test]
+async fn reconstruction_without_workflow_persistence_skips_workflow_restore() {
+    let (session, turn_context) = make_session_and_context().await;
+    let malformed_snapshot = WorkflowStateItem::try_new(
+        /*schema_version*/ 1,
+        "wf_parent",
+        json!({"not": "a workflow snapshot"}),
+    )
+    .expect("workflow state envelope");
+
+    session
+        .apply_rollout_reconstruction(
+            &turn_context,
+            &[RolloutItem::WorkflowState(malformed_snapshot)],
+            /*persist_workflows*/ false,
+        )
+        .await
+        .expect("workflow restore should be skipped");
+
+    assert_eq!(
+        session
+            .services
+            .agent_control
+            .workflow_manager()
+            .snapshots_for_owner(session.thread_id())
+            .await,
+        Vec::new()
+    );
+}
+
+#[tokio::test]
 async fn record_initial_history_reconstructs_typed_inter_agent_message() {
     let (session, _turn_context) = make_session_and_context().await;
     let communication = InterAgentCommunication::new(
@@ -126,7 +192,8 @@ async fn record_initial_history_reconstructs_typed_inter_agent_message() {
             )]),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.state.lock().await.clone_history().raw_items(),
@@ -161,7 +228,8 @@ async fn record_initial_history_restores_world_state_baseline() {
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
     let step_context = StepContext::for_test(Arc::clone(&turn_context));
     session
         .record_context_updates_and_set_reference_context_item(&step_context)
@@ -214,7 +282,8 @@ async fn record_initial_history_resumed_bare_turn_context_does_not_hydrate_previ
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(session.previous_turn_settings().await, None);
     assert!(session.reference_context_item().await.is_none());
@@ -294,7 +363,8 @@ async fn record_initial_history_resumed_hydrates_previous_turn_settings_from_lif
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -895,7 +965,8 @@ async fn record_initial_history_resumed_rollback_skips_only_user_turns() {
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(session.previous_turn_settings().await, None);
     assert!(session.reference_context_item().await.is_none());
@@ -981,7 +1052,8 @@ async fn record_initial_history_resumed_rollback_drops_incomplete_user_turn_comp
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1011,7 +1083,8 @@ async fn record_initial_history_resumed_bare_turn_context_does_not_seed_referenc
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert!(session.reference_context_item().await.is_none());
 }
@@ -1038,7 +1111,8 @@ async fn record_initial_history_resumed_does_not_seed_reference_context_item_aft
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(session.previous_turn_settings().await, None);
     assert!(session.reference_context_item().await.is_none());
@@ -1364,7 +1438,8 @@ async fn record_initial_history_resumed_turn_context_after_compaction_reestablis
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1514,7 +1589,8 @@ async fn record_initial_history_resumed_aborted_turn_without_id_clears_active_tu
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1643,7 +1719,8 @@ async fn record_initial_history_resumed_unmatched_abort_preserves_active_turn_fo
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1762,7 +1839,8 @@ async fn record_initial_history_resumed_trailing_incomplete_turn_compaction_clea
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1813,7 +1891,8 @@ async fn record_initial_history_resumed_trailing_incomplete_turn_preserves_turn_
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1944,7 +2023,8 @@ async fn record_initial_history_resumed_replaced_incomplete_compacted_turn_clear
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,

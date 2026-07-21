@@ -52,6 +52,7 @@ mod compact_remote_parity;
 mod compact_resume_fork;
 mod current_time_reminder;
 mod deprecation_notice;
+mod dynamic_workflows;
 mod exec;
 mod exec_policy;
 #[cfg(not(target_os = "windows"))]
@@ -118,6 +119,7 @@ mod rollout_budget;
 mod rollout_list_find;
 mod safety_buffering;
 mod safety_check_downgrade;
+mod saved_workflows;
 mod search_tool;
 mod shell_command;
 mod shell_serialization;
@@ -148,4 +150,6 @@ mod websocket_fallback;
 mod window_headers;
 #[cfg(target_os = "windows")]
 mod windows_sandbox;
+mod workflow_api;
+mod workflow_resume;
 mod workspace_roots;

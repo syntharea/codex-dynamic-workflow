@@ -89,6 +89,7 @@ members = [
     "tools",
     "v8-poc",
     "websocket-client",
+    "workflows",
     "utils/absolute-path",
     "utils/path-uri",
     "utils/cargo-bin",
@@ -260,6 +261,7 @@ codex-utils-string = { path = "utils/string" }
 codex-utils-template = { path = "utils/template" }
 codex-v8-poc = { path = "v8-poc" }
 codex-windows-sandbox = { path = "windows-sandbox-rs" }
+codex-workflows = { path = "workflows" }
 core_test_support = { path = "core/tests/common" }
 mcp_test_support = { path = "mcp-server/tests/common" }
 
@@ -280,6 +282,8 @@ aws-sigv4 = "1"
 aws-types = "1"
 axum = { version = "0.8", default-features = false }
 base64 = "0.22.1"
+cap-fs-ext = { version = "4.0.2", default-features = false }
+cap-primitives = "4.0.2"
 bm25 = "2.3.2"
 bytes = "1.10.1"
 chardetng = "0.1.17"
@@ -312,6 +316,7 @@ dunce = "1.0.4"
 ed25519-dalek = { version = "2.2.0", features = ["pkcs8"] }
 encoding_rs = "0.8.35"
 eventsource-stream = "0.2.3"
+fd-lock = "4.0.4"
 flate2 = "1.1.8"
 futures = { version = "0.3", default-features = false }
 gethostname = "1.1.0"

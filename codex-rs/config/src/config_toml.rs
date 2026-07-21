@@ -436,6 +436,9 @@ pub struct ConfigToml {
     /// Agent-related settings (thread limits, etc.).
     pub agents: Option<AgentsToml>,
 
+    /// Dynamic workflow execution limits.
+    pub workflows: Option<WorkflowsToml>,
+
     /// Memories subsystem settings.
     pub memories: Option<MemoriesToml>,
 
@@ -713,6 +716,22 @@ pub struct AgentsToml {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+pub struct WorkflowsToml {
+    #[schemars(range(min = 1))]
+    pub max_concurrent_workflows: Option<usize>,
+    #[schemars(range(min = 1, max = 256))]
+    pub max_tasks_per_workflow: Option<usize>,
+    #[schemars(range(min = 1))]
+    pub max_concurrent_tasks: Option<usize>,
+    #[schemars(range(min = 1))]
+    pub max_task_attempts: Option<u8>,
+    #[schemars(range(min = 1))]
+    pub pause_timeout_seconds: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct AgentRoleToml {
     /// Human-facing role documentation used in spawn tool guidance.
@@ -976,6 +995,58 @@ mod tests {
 
     const WORKSPACE_ID_A: &str = "123e4567-e89b-42d3-a456-426614174000";
     const WORKSPACE_ID_B: &str = "123e4567-e89b-42d3-a456-426614174001";
+
+    #[test]
+    fn workflows_table_deserializes_documented_limits() {
+        let config: ConfigToml = toml::from_str(
+            r#"
+[workflows]
+max_concurrent_workflows = 4
+max_tasks_per_workflow = 256
+max_concurrent_tasks = 16
+max_task_attempts = 2
+pause_timeout_seconds = 30
+"#,
+        )
+        .expect("documented workflows config should deserialize");
+
+        assert_eq!(
+            config.workflows,
+            Some(WorkflowsToml {
+                max_concurrent_workflows: Some(4),
+                max_tasks_per_workflow: Some(256),
+                max_concurrent_tasks: Some(16),
+                max_task_attempts: Some(2),
+                pause_timeout_seconds: Some(30),
+            })
+        );
+    }
+
+    #[test]
+    fn workflows_schema_caps_max_tasks_per_workflow_at_256() {
+        let schema = serde_json::to_value(schemars::schema_for!(WorkflowsToml))
+            .expect("workflows schema should serialize");
+
+        assert_eq!(
+            schema
+                .pointer("/properties/max_tasks_per_workflow/maximum")
+                .and_then(serde_json::Value::as_f64),
+            Some(256.0)
+        );
+    }
+
+    #[test]
+    fn workflows_table_rejects_unknown_fields() {
+        let error = toml::from_str::<ConfigToml>(
+            r#"
+[workflows]
+unknown_limit = 1
+"#,
+        )
+        .expect_err("unknown workflow fields should be rejected");
+
+        assert!(error.to_string().contains("unknown field `unknown_limit`"));
+    }
 
     #[test]
     fn forced_chatgpt_workspace_id_accepts_single_string() {

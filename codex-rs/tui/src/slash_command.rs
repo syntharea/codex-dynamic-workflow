@@ -13,6 +13,9 @@ pub enum SlashCommand {
     // DO NOT ALPHA-SORT! Enum order is presentation order in the popup, so
     // more frequently used commands should be listed first.
     Model,
+    Effort,
+    DeepResearch,
+    Workflows,
     Ide,
     Permissions,
     Keymap,
@@ -114,6 +117,9 @@ impl SlashCommand {
             SlashCommand::MemoryDrop => "DO NOT USE",
             SlashCommand::MemoryUpdate => "DO NOT USE",
             SlashCommand::Model => "choose what model and reasoning effort to use",
+            SlashCommand::Effort => "choose regular effort or arm one-shot ultracode",
+            SlashCommand::DeepResearch => "run a deep-research workflow",
+            SlashCommand::Workflows => "view and manage dynamic workflows",
             SlashCommand::Ide => {
                 "include current selection, open files, and other context from your IDE"
             }
@@ -154,6 +160,8 @@ impl SlashCommand {
         matches!(
             self,
             SlashCommand::Review
+                | SlashCommand::Effort
+                | SlashCommand::DeepResearch
                 | SlashCommand::Rename
                 | SlashCommand::Plan
                 | SlashCommand::Goal
@@ -201,6 +209,7 @@ impl SlashCommand {
             | SlashCommand::Memories
             | SlashCommand::Import
             | SlashCommand::Review
+            | SlashCommand::DeepResearch
             | SlashCommand::Plan
             | SlashCommand::Clear
             | SlashCommand::Logout
@@ -209,6 +218,8 @@ impl SlashCommand {
             SlashCommand::Diff
             | SlashCommand::Resume
             | SlashCommand::Model
+            | SlashCommand::Effort
+            | SlashCommand::Workflows
             | SlashCommand::Personality
             | SlashCommand::Permissions
             | SlashCommand::Copy

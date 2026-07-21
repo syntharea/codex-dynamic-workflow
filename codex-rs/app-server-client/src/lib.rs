@@ -128,11 +128,11 @@ fn event_requires_delivery(event: &InProcessServerEvent) -> bool {
 /// Returns `true` for notifications that must survive backpressure.
 ///
 /// Transcript events (`AgentMessageDelta`, `PlanDelta`, reasoning deltas) and
-/// the authoritative `ItemCompleted` / `TurnCompleted` form the lossless tier
-/// of the event stream. Dropping any of these corrupts the visible assistant
-/// output or leaves surfaces waiting for a completion signal that already
-/// fired. Everything else (`CommandExecutionOutputDelta`, progress, etc.) is
-/// best-effort and may be dropped with only cosmetic impact.
+/// the authoritative item, turn, and workflow lifecycle notifications form the
+/// lossless tier of the event stream. Dropping any of these corrupts visible
+/// output or leaves surfaces waiting for a state transition that already
+/// fired. Everything else (`CommandExecutionOutputDelta`, etc.) is best-effort
+/// and may be dropped with only cosmetic impact.
 ///
 /// Both the in-process and remote transports delegate to this function so the
 /// classification stays in sync.
@@ -147,6 +147,12 @@ pub(crate) fn server_notification_requires_delivery(notification: &ServerNotific
             | ServerNotification::PlanDelta(_)
             | ServerNotification::ReasoningSummaryTextDelta(_)
             | ServerNotification::ReasoningTextDelta(_)
+            | ServerNotification::WorkflowStarted(_)
+            | ServerNotification::WorkflowProgress(_)
+            | ServerNotification::WorkflowPaused(_)
+            | ServerNotification::WorkflowCompleted(_)
+            | ServerNotification::WorkflowFailed(_)
+            | ServerNotification::WorkflowCancelled(_)
     )
 }
 
@@ -2183,6 +2189,74 @@ mod tests {
                 )
             )
         ));
+    }
+
+    #[test]
+    fn event_requires_delivery_marks_workflow_notifications() {
+        let workflow = codex_app_server_protocol::Workflow {
+            workflow_id: "workflow".to_string(),
+            title: "Workflow".to_string(),
+            status: codex_app_server_protocol::WorkflowStatus::Running,
+            tasks: Vec::new(),
+            completed_tasks: 0,
+            running_tasks: 1,
+            queued_tasks: 0,
+            blocked_tasks: 0,
+            failed_tasks: 0,
+            summary: "running".to_string(),
+        };
+        let notifications = [
+            ServerNotification::WorkflowStarted(
+                codex_app_server_protocol::WorkflowStartedNotification {
+                    thread_id: "thread".to_string(),
+                    workflow: workflow.clone(),
+                },
+            ),
+            ServerNotification::WorkflowProgress(
+                codex_app_server_protocol::WorkflowProgressNotification {
+                    thread_id: "thread".to_string(),
+                    workflow_id: workflow.workflow_id.clone(),
+                    status: codex_app_server_protocol::WorkflowStatus::Running,
+                    completed_tasks: 0,
+                    running_tasks: 1,
+                    queued_tasks: 0,
+                    blocked_tasks: 0,
+                    failed_tasks: 0,
+                    summary: "running".to_string(),
+                },
+            ),
+            ServerNotification::WorkflowPaused(
+                codex_app_server_protocol::WorkflowPausedNotification {
+                    thread_id: "thread".to_string(),
+                    workflow: workflow.clone(),
+                },
+            ),
+            ServerNotification::WorkflowCompleted(
+                codex_app_server_protocol::WorkflowCompletedNotification {
+                    thread_id: "thread".to_string(),
+                    workflow: workflow.clone(),
+                },
+            ),
+            ServerNotification::WorkflowFailed(
+                codex_app_server_protocol::WorkflowFailedNotification {
+                    thread_id: "thread".to_string(),
+                    workflow: workflow.clone(),
+                    error: "failed".to_string(),
+                },
+            ),
+            ServerNotification::WorkflowCancelled(
+                codex_app_server_protocol::WorkflowCancelledNotification {
+                    thread_id: "thread".to_string(),
+                    workflow,
+                },
+            ),
+        ];
+
+        for notification in notifications {
+            assert!(event_requires_delivery(
+                &InProcessServerEvent::ServerNotification(notification)
+            ));
+        }
     }
 
     #[tokio::test]

@@ -56,6 +56,7 @@ use crate::request_permissions::RequestPermissionsEvent;
 use crate::request_permissions::RequestPermissionsResponse;
 use crate::request_user_input::RequestUserInputResponse;
 use crate::user_input::UserInput;
+pub use crate::workflow::*;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
 use schemars::JsonSchema;
@@ -639,7 +640,9 @@ pub enum Op {
     },
 
     /// Request MCP servers to reinitialize and refresh cached tool lists.
-    RefreshMcpServers { config: McpServerRefreshConfig },
+    RefreshMcpServers {
+        config: McpServerRefreshConfig,
+    },
 
     /// Reload user config layer overrides for the active session.
     ///
@@ -656,19 +659,27 @@ pub enum Op {
     ///
     /// This persists thread-level memory mode metadata without involving the
     /// model.
-    SetThreadMemoryMode { mode: ThreadMemoryMode },
+    SetThreadMemoryMode {
+        mode: ThreadMemoryMode,
+    },
 
     /// Request Codex to drop the last N user turns from in-memory context.
     ///
     /// This does not attempt to revert local filesystem changes. Clients are
     /// responsible for undoing any edits on disk.
-    ThreadRollback { num_turns: u32 },
+    ThreadRollback {
+        num_turns: u32,
+    },
 
     /// Request a code review from the agent.
-    Review { review_request: ReviewRequest },
+    Review {
+        review_request: ReviewRequest,
+    },
 
     /// Record that the user approved one retry of a concrete Guardian-denied action.
-    ApproveGuardianDeniedAction { event: GuardianAssessmentEvent },
+    ApproveGuardianDeniedAction {
+        event: GuardianAssessmentEvent,
+    },
 
     /// Request to shut down codex instance.
     Shutdown,
@@ -682,6 +693,17 @@ pub enum Op {
         /// The raw command string after '!'
         command: String,
     },
+
+    WorkflowStart(WorkflowStartParams),
+    WorkflowRead(WorkflowReadParams),
+    WorkflowList(WorkflowListParams),
+    WorkflowPause(WorkflowPauseParams),
+    WorkflowResume(WorkflowResumeParams),
+    WorkflowCancel(WorkflowCancelParams),
+    WorkflowRetry(WorkflowRetryParams),
+    WorkflowSave(WorkflowSaveParams),
+    WorkflowRunSaved(WorkflowRunSavedParams),
+    WorkflowDeleteSaved(WorkflowDeleteSavedParams),
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, JsonSchema)]
@@ -889,6 +911,16 @@ impl Op {
             Self::ApproveGuardianDeniedAction { .. } => "approve_guardian_denied_action",
             Self::Shutdown => "shutdown",
             Self::RunUserShellCommand { .. } => "run_user_shell_command",
+            Self::WorkflowStart(_) => "workflow_start",
+            Self::WorkflowRead(_) => "workflow_read",
+            Self::WorkflowList(_) => "workflow_list",
+            Self::WorkflowPause(_) => "workflow_pause",
+            Self::WorkflowResume(_) => "workflow_resume",
+            Self::WorkflowCancel(_) => "workflow_cancel",
+            Self::WorkflowRetry(_) => "workflow_retry",
+            Self::WorkflowSave(_) => "workflow_save",
+            Self::WorkflowRunSaved(_) => "workflow_run_saved",
+            Self::WorkflowDeleteSaved(_) => "workflow_delete_saved",
         }
     }
 }
@@ -1489,6 +1521,13 @@ pub enum EventMsg {
 
     /// Path-based v2 sub-agent activity.
     SubAgentActivity(SubAgentActivityEvent),
+
+    WorkflowStarted(WorkflowStartedEvent),
+    WorkflowProgress(WorkflowProgressEvent),
+    WorkflowPaused(WorkflowPausedEvent),
+    WorkflowCompleted(WorkflowCompletedEvent),
+    WorkflowFailed(WorkflowFailedEvent),
+    WorkflowCancelled(WorkflowCancelledEvent),
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS, EnumIter)]
@@ -2689,6 +2728,7 @@ impl InitialHistory {
                 | RolloutItem::InterAgentCommunicationMetadata { .. }
                 | RolloutItem::Compacted(_)
                 | RolloutItem::WorldState(_)
+                | RolloutItem::WorkflowState(_)
                 | RolloutItem::EventMsg(_) => None,
             })
             .and_then(|turn_context| turn_context.multi_agent_mode.clone())
@@ -3025,6 +3065,7 @@ fn multi_agent_version_from_items(
             | RolloutItem::InterAgentCommunicationMetadata { .. }
             | RolloutItem::Compacted(_)
             | RolloutItem::WorldState(_)
+            | RolloutItem::WorkflowState(_)
             | RolloutItem::EventMsg(_) => None,
         })
     })
@@ -3208,7 +3249,20 @@ pub enum RolloutItem {
     Compacted(CompactedItem),
     TurnContext(TurnContextItem),
     WorldState(WorldStateItem),
+    WorkflowState(WorkflowStateItem),
     EventMsg(EventMsg),
+}
+
+impl RolloutItem {
+    pub fn is_model_visible(&self) -> bool {
+        matches!(
+            self,
+            Self::ResponseItem(_)
+                | Self::InterAgentCommunication(_)
+                | Self::EventMsg(EventMsg::UserMessage(_))
+                | Self::EventMsg(EventMsg::AgentMessage(_))
+        )
+    }
 }
 
 /// Persisted comparison state used to resume model-visible world-state diffing.

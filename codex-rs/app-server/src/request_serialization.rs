@@ -21,6 +21,10 @@ pub(crate) enum RequestSerializationQueueKey {
     Thread {
         thread_id: String,
     },
+    Workflow {
+        thread_id: String,
+        workflow_id: String,
+    },
     ThreadPath {
         path: PathBuf,
     },
@@ -64,6 +68,16 @@ impl RequestSerializationQueueKey {
             }
             ClientRequestSerializationScope::Thread { thread_id } => (
                 Self::Thread { thread_id },
+                RequestSerializationAccess::Exclusive,
+            ),
+            ClientRequestSerializationScope::Workflow {
+                thread_id,
+                workflow_id,
+            } => (
+                Self::Workflow {
+                    thread_id,
+                    workflow_id,
+                },
                 RequestSerializationAccess::Exclusive,
             ),
             ClientRequestSerializationScope::ThreadPath { path } => (
@@ -251,6 +265,26 @@ mod tests {
 
     fn shutdown_wait_timeout() -> Duration {
         Duration::from_millis(/*millis*/ 50)
+    }
+
+    #[test]
+    fn workflow_scope_maps_to_workflow_queue_key() {
+        assert_eq!(
+            RequestSerializationQueueKey::from_scope(
+                ConnectionId(7),
+                ClientRequestSerializationScope::Workflow {
+                    thread_id: "thread-1".to_string(),
+                    workflow_id: "workflow-1".to_string(),
+                },
+            ),
+            (
+                RequestSerializationQueueKey::Workflow {
+                    thread_id: "thread-1".to_string(),
+                    workflow_id: "workflow-1".to_string(),
+                },
+                RequestSerializationAccess::Exclusive,
+            )
+        );
     }
 
     #[tokio::test]

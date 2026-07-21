@@ -285,7 +285,8 @@ impl ThreadMetadataSync {
                 | RolloutItem::InterAgentCommunication(_)
                 | RolloutItem::InterAgentCommunicationMetadata { .. }
                 | RolloutItem::Compacted(_)
-                | RolloutItem::WorldState(_) => {}
+                | RolloutItem::WorldState(_)
+                | RolloutItem::WorkflowState(_) => {}
             }
         }
         Some(update)
@@ -406,6 +407,7 @@ mod tests {
     use codex_protocol::protocol::TurnStartedEvent;
     use codex_protocol::protocol::UserMessageEvent;
     use codex_protocol::user_input::UserInput;
+    use codex_protocol::workflow::WorkflowStateItem;
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -548,6 +550,24 @@ mod tests {
             sync.take_pending_update().is_some(),
             "coalesced touches still flush at the next barrier"
         );
+    }
+
+    #[test]
+    fn workflow_state_does_not_derive_thread_metadata() {
+        let thread_id = ThreadId::new();
+        let mut sync = ThreadMetadataSync::for_resume(&resume_params(thread_id, Vec::new()));
+        let item = RolloutItem::WorkflowState(
+            WorkflowStateItem::new("workflow-1", serde_json::json!({"status": "running"}))
+                .expect("valid workflow state"),
+        );
+
+        let update = sync
+            .observe_appended_items(std::slice::from_ref(&item))
+            .expect("first touch should apply immediately");
+
+        assert!(!update_has_metadata_facts(&update.patch));
+        assert!(update.patch.updated_at.is_some());
+        assert!(update.patch.advance_recency_at.is_none());
     }
 
     #[test]

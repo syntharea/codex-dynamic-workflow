@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "WorkflowStatus": {
+      "enum": [
+        "planning",
+        "running",
+        "pausing",
+        "paused",
+        "consolidating",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "blockedTasks": {
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "completedTasks": {
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "failedTasks": {
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "queuedTasks": {
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "runningTasks": {
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/definitions/WorkflowStatus"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "workflowId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "blockedTasks",
+    "completedTasks",
+    "failedTasks",
+    "queuedTasks",
+    "runningTasks",
+    "status",
+    "summary",
+    "threadId",
+    "workflowId"
+  ],
+  "title": "WorkflowProgressNotification",
+  "type": "object"
+}

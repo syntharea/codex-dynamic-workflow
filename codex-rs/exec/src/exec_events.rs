@@ -22,6 +22,24 @@ pub enum ThreadEvent {
     /// Indicates that a turn failed with an error.
     #[serde(rename = "turn.failed")]
     TurnFailed(TurnFailedEvent),
+    /// Emitted after the target workflow is created.
+    #[serde(rename = "workflow.started")]
+    WorkflowStarted(WorkflowStartedEvent),
+    /// Reports bounded progress for the target workflow.
+    #[serde(rename = "workflow.progress")]
+    WorkflowProgress(WorkflowProgressEvent),
+    /// Reports that the target workflow is paused. This is not terminal.
+    #[serde(rename = "workflow.paused")]
+    WorkflowPaused(WorkflowPausedEvent),
+    /// Reports successful completion of the target workflow.
+    #[serde(rename = "workflow.completed")]
+    WorkflowCompleted(WorkflowCompletedEvent),
+    /// Reports failure of the target workflow.
+    #[serde(rename = "workflow.failed")]
+    WorkflowFailed(WorkflowFailedEvent),
+    /// Reports cancellation of the target workflow.
+    #[serde(rename = "workflow.cancelled")]
+    WorkflowCancelled(WorkflowCancelledEvent),
     /// Emitted when a new item is added to the thread. Typically the item will be in an "in progress" state.
     #[serde(rename = "item.started")]
     ItemStarted(ItemStartedEvent),
@@ -54,6 +72,99 @@ pub struct TurnCompletedEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct TurnFailedEvent {
     pub error: ThreadErrorEvent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct WorkflowStartedEvent {
+    pub thread_id: String,
+    pub workflow: WorkflowEventSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct WorkflowProgressEvent {
+    pub thread_id: String,
+    pub workflow_id: String,
+    pub status: WorkflowEventStatus,
+    pub completed_tasks: usize,
+    pub running_tasks: usize,
+    pub queued_tasks: usize,
+    pub blocked_tasks: usize,
+    pub failed_tasks: usize,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct WorkflowPausedEvent {
+    pub thread_id: String,
+    pub workflow: WorkflowEventSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct WorkflowCompletedEvent {
+    pub thread_id: String,
+    pub workflow: WorkflowEventSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct WorkflowFailedEvent {
+    pub thread_id: String,
+    pub workflow: WorkflowEventSnapshot,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct WorkflowCancelledEvent {
+    pub thread_id: String,
+    pub workflow: WorkflowEventSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct WorkflowEventSnapshot {
+    pub workflow_id: String,
+    pub title: String,
+    pub status: WorkflowEventStatus,
+    pub tasks: Vec<WorkflowEventTask>,
+    pub completed_tasks: usize,
+    pub running_tasks: usize,
+    pub queued_tasks: usize,
+    pub blocked_tasks: usize,
+    pub failed_tasks: usize,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+pub struct WorkflowEventTask {
+    pub task_id: String,
+    pub title: String,
+    pub status: WorkflowTaskEventStatus,
+    pub summary: String,
+    pub attempt: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowEventStatus {
+    Planning,
+    Running,
+    Pausing,
+    Paused,
+    Consolidating,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowTaskEventStatus {
+    Queued,
+    Ready,
+    Running,
+    WaitingForApproval,
+    Succeeded,
+    Failed,
+    Blocked,
+    Cancelled,
 }
 
 /// Describes the usage of tokens during a turn.

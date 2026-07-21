@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Workflow": {
+      "properties": {
+        "blockedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "completedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "failedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "queuedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "runningTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/WorkflowStatus"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/WorkflowTask"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blockedTasks",
+        "completedTasks",
+        "failedTasks",
+        "queuedTasks",
+        "runningTasks",
+        "status",
+        "summary",
+        "tasks",
+        "title",
+        "workflowId"
+      ],
+      "type": "object"
+    },
+    "WorkflowStatus": {
+      "enum": [
+        "planning",
+        "running",
+        "pausing",
+        "paused",
+        "consolidating",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "WorkflowTask": {
+      "properties": {
+        "attempt": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/WorkflowTaskStatus"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "status",
+        "summary",
+        "taskId",
+        "title"
+      ],
+      "type": "object"
+    },
+    "WorkflowTaskStatus": {
+      "enum": [
+        "queued",
+        "ready",
+        "running",
+        "waitingForApproval",
+        "succeeded",
+        "failed",
+        "blocked",
+        "cancelled"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "workflow": {
+      "$ref": "#/definitions/Workflow"
+    }
+  },
+  "required": [
+    "workflow"
+  ],
+  "title": "WorkflowRunResponse",
+  "type": "object"
+}

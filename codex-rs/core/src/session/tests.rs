@@ -151,7 +151,12 @@ use codex_protocol::protocol::TurnCompleteEvent;
 use codex_protocol::protocol::TurnStartedEvent;
 use codex_protocol::protocol::UserMessageEvent;
 use codex_protocol::protocol::W3cTraceContext;
+use codex_protocol::protocol::WorkflowStateItem;
 use codex_rmcp_client::ElicitationAction;
+use codex_workflows::WorkflowDefinition;
+use codex_workflows::WorkflowId;
+use codex_workflows::WorkflowLimits;
+use codex_workflows::WorkflowSnapshot;
 use core_test_support::PathBufExt;
 use core_test_support::PathExt;
 use core_test_support::context_snapshot;
@@ -288,6 +293,13 @@ fn assistant_message(text: &str) -> ResponseItem {
         phase: None,
         internal_chat_message_metadata_passthrough: None,
     }
+}
+
+fn test_workflow_snapshot() -> WorkflowSnapshot {
+    let definition =
+        WorkflowDefinition::try_new("resume workflow", Vec::new(), WorkflowLimits::default())
+            .expect("workflow definition");
+    WorkflowSnapshot::new(WorkflowId::new(), definition)
 }
 
 fn test_session_telemetry_without_metadata() -> SessionTelemetry {
@@ -1754,7 +1766,8 @@ async fn record_initial_history_reconstructs_resumed_transcript() {
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     let history = session.state.lock().await.clone_history();
     assert_eq!(expected, history.raw_items());
@@ -1875,7 +1888,8 @@ async fn record_inter_agent_communication_sets_turn_id_in_rollout_and_resume() {
     let (resumed_session, _resumed_turn_context) = make_session_and_context().await;
     resumed_session
         .record_initial_history(InitialHistory::Resumed(resumed))
-        .await;
+        .await
+        .expect("record resumed initial history");
     assert_eq!(
         resumed_session.clone_history().await.raw_items(),
         std::slice::from_ref(&expected_item)
@@ -1943,7 +1957,8 @@ async fn record_inter_agent_communication_preserves_item_id_in_rollout_and_resum
         .await;
     resumed_session
         .record_initial_history(InitialHistory::Resumed(resumed))
-        .await;
+        .await
+        .expect("record resumed initial history");
     let resumed_history = resumed_session.clone_history().await;
     let [resumed_item] = resumed_history.raw_items() else {
         panic!("expected exactly one resumed history item");
@@ -2051,7 +2066,8 @@ async fn prepares_resumed_history_before_installing_it() {
             history: Arc::new(vec![RolloutItem::ResponseItem(resumed_item)]),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     assert_eq!(
         session.state.lock().await.clone_history().raw_items(),
@@ -2146,7 +2162,10 @@ fn resolve_multi_agent_version_handles_unset_and_legacy_history() {
 async fn record_initial_history_new_defers_initial_context_until_first_turn() {
     let (session, _turn_context) = make_session_and_context().await;
 
-    session.record_initial_history(InitialHistory::New).await;
+    session
+        .record_initial_history(InitialHistory::New)
+        .await
+        .expect("record new initial history");
 
     let history = session.clone_history().await;
     assert_eq!(history.raw_items().to_vec(), Vec::<ResponseItem>::new());
@@ -2181,7 +2200,8 @@ async fn resumed_history_injects_initial_context_on_first_context_update_only() 
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     let history_before_seed = session.state.lock().await.clone_history();
     assert_eq!(expected, history_before_seed.raw_items());
@@ -2280,7 +2300,8 @@ async fn record_initial_history_seeds_token_info_from_rollout() {
             history: Arc::new(rollout_items),
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("record resumed initial history");
 
     let actual = session.state.lock().await.token_info();
     assert_eq!(actual, Some(info2));
@@ -2796,10 +2817,56 @@ async fn record_initial_history_reconstructs_forked_transcript() {
 
     session
         .record_initial_history(InitialHistory::Forked(rollout_items))
-        .await;
+        .await
+        .expect("record forked initial history");
 
     let history = session.state.lock().await.clone_history();
     assert_eq!(expected, history.raw_items());
+}
+
+#[tokio::test]
+async fn record_initial_history_fork_filters_workflow_state_without_registering_parent_workflow() {
+    let (mut session, _turn_context, _rx) = make_session_and_context_with_rx().await;
+    let rollout_path =
+        attach_thread_persistence(Arc::get_mut(&mut session).expect("unique session")).await;
+    let workflow_manager = session.services.agent_control.workflow_manager();
+    let snapshot = test_workflow_snapshot();
+    let workflow_state = WorkflowStateItem::new(
+        snapshot.workflow_id.to_string(),
+        serde_json::to_value(snapshot).expect("serialize workflow snapshot"),
+    )
+    .expect("workflow state envelope");
+    let forked_message = assistant_message("forked transcript");
+
+    session
+        .record_initial_history(InitialHistory::Forked(vec![
+            RolloutItem::WorkflowState(workflow_state),
+            RolloutItem::ResponseItem(forked_message.clone()),
+        ]))
+        .await
+        .expect("record forked initial history");
+
+    assert_eq!(
+        workflow_manager
+            .snapshots_for_owner(session.thread_id())
+            .await,
+        Vec::new()
+    );
+    assert_eq!(session.clone_history().await.raw_items(), &[forked_message]);
+
+    session.flush_rollout().await.expect("rollout should flush");
+    let InitialHistory::Resumed(resumed) = RolloutRecorder::get_rollout_history(&rollout_path)
+        .await
+        .expect("read rollout history")
+    else {
+        panic!("expected resumed rollout history");
+    };
+    assert!(
+        resumed
+            .history
+            .iter()
+            .all(|item| !matches!(item, RolloutItem::WorkflowState(_)))
+    );
 }
 
 #[tokio::test]
@@ -2845,7 +2912,8 @@ async fn start_new_context_window_assigns_and_persists_item_ids() {
         | RolloutItem::InterAgentCommunicationMetadata { .. }
         | RolloutItem::TurnContext(_)
         | RolloutItem::WorldState(_)
-        | RolloutItem::EventMsg(_) => None,
+        | RolloutItem::EventMsg(_)
+        | RolloutItem::WorkflowState(_) => None,
     });
     assert_eq!(
         persisted_replacement_history.map(Vec::as_slice),
@@ -2875,7 +2943,8 @@ async fn record_initial_history_assigns_and_persists_id_for_forked_response_item
         .record_initial_history(InitialHistory::Forked(vec![RolloutItem::ResponseItem(
             response_item,
         )]))
-        .await;
+        .await
+        .expect("record forked initial history");
 
     let live_history = session.clone_history().await;
     let [live_item] = live_history.raw_items() else {
@@ -2904,7 +2973,8 @@ async fn record_initial_history_assigns_and_persists_id_for_forked_response_item
         | RolloutItem::Compacted(_)
         | RolloutItem::TurnContext(_)
         | RolloutItem::WorldState(_)
-        | RolloutItem::EventMsg(_) => None,
+        | RolloutItem::EventMsg(_)
+        | RolloutItem::WorkflowState(_) => None,
     });
     assert_eq!(
         persisted_item_id.map(ResponseItemId::as_str),
@@ -3121,7 +3191,8 @@ async fn record_initial_history_forked_hydrates_previous_turn_settings() {
 
     session
         .record_initial_history(InitialHistory::Forked(rollout_items))
-        .await;
+        .await
+        .expect("record forked initial history");
 
     let history = session.clone_history().await;
     assert_eq!(
@@ -5684,6 +5755,110 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
     .await?;
 
     Ok((session, rx_event))
+}
+
+#[tokio::test]
+async fn session_new_rejects_malformed_workflow_snapshot() {
+    let thread_id = ThreadId::new();
+    let workflow_state =
+        WorkflowStateItem::new("wf_malformed", json!({"not": "a workflow snapshot"}))
+            .expect("workflow state envelope");
+
+    let error = make_session_with_history_source_and_agent_control_and_rx(
+        InitialHistory::Resumed(ResumedHistory {
+            conversation_id: thread_id,
+            history: Arc::new(vec![RolloutItem::WorkflowState(workflow_state)]),
+            rollout_path: None,
+        }),
+        SessionSource::Exec,
+        AgentControl::default(),
+    )
+    .await
+    .err()
+    .expect("malformed workflow snapshot should reject session construction");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("failed to decode persisted workflow snapshot wf_malformed"),
+        "unexpected error: {message}"
+    );
+}
+
+#[tokio::test]
+async fn session_new_rejects_mismatched_workflow_snapshot_id() {
+    let thread_id = ThreadId::new();
+    let snapshot = test_workflow_snapshot();
+    let snapshot_workflow_id = snapshot.workflow_id.to_string();
+    let outer_workflow_id = WorkflowId::new().to_string();
+    let workflow_state = WorkflowStateItem::new(
+        outer_workflow_id.clone(),
+        serde_json::to_value(snapshot).expect("serialize workflow snapshot"),
+    )
+    .expect("workflow state envelope");
+
+    let error = make_session_with_history_source_and_agent_control_and_rx(
+        InitialHistory::Resumed(ResumedHistory {
+            conversation_id: thread_id,
+            history: Arc::new(vec![RolloutItem::WorkflowState(workflow_state)]),
+            rollout_path: None,
+        }),
+        SessionSource::Exec,
+        AgentControl::default(),
+    )
+    .await
+    .err()
+    .expect("mismatched workflow id should reject session construction");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("persisted workflow snapshot id mismatch"),
+        "unexpected error: {message}"
+    );
+    assert!(message.contains(&outer_workflow_id));
+    assert!(message.contains(&snapshot_workflow_id));
+}
+
+#[tokio::test]
+async fn session_new_rejects_reconciled_workflow_persistence_failure_without_dispatch() {
+    let manager_home = tempfile::tempdir().expect("create manager temp dir");
+    let manager_config = build_test_config(manager_home.path()).await;
+    let manager = crate::thread_manager::ThreadManager::with_models_provider_and_home_for_tests(
+        CodexAuth::from_api_key("dummy"),
+        manager_config.model_provider.clone(),
+        manager_config.codex_home.to_path_buf(),
+        Arc::new(EnvironmentManager::default_for_tests()),
+    );
+    let agent_control = manager.agent_control();
+    let snapshot = test_workflow_snapshot();
+    let workflow_id = snapshot.workflow_id.to_string();
+    let workflow_state = WorkflowStateItem::new(
+        workflow_id.clone(),
+        serde_json::to_value(snapshot).expect("serialize workflow snapshot"),
+    )
+    .expect("workflow state envelope");
+
+    let error = make_session_with_history_source_and_agent_control_and_rx(
+        InitialHistory::Resumed(ResumedHistory {
+            conversation_id: ThreadId::new(),
+            history: Arc::new(vec![RolloutItem::WorkflowState(workflow_state)]),
+            rollout_path: None,
+        }),
+        SessionSource::Exec,
+        agent_control,
+    )
+    .await
+    .err()
+    .expect("workflow persistence failure should reject session construction");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains(&format!(
+            "failed to persist reconciled workflow snapshot {workflow_id}"
+        )),
+        "unexpected error: {message}"
+    );
+    assert!(message.contains("workflow persistence is unavailable"));
+    assert_eq!(manager.captured_ops(), Vec::new());
 }
 
 #[tokio::test]

@@ -22,6 +22,27 @@ impl App {
         event: AppEvent,
     ) -> Result<AppRunControl> {
         match event {
+            AppEvent::StartWorkflow {
+                thread_id,
+                objective,
+                policy,
+            } => {
+                self.start_workflow(app_server, thread_id, objective, policy)
+                    .await;
+            }
+            AppEvent::ArmWorkflow { policy } => {
+                self.chat_widget.arm_workflow(policy);
+            }
+            AppEvent::OpenWorkflowManager => {
+                self.open_workflow_manager(app_server).await;
+            }
+            AppEvent::OpenSavedWorkflowDetail { workflow } => {
+                self.chat_widget.show_saved_workflow_detail(workflow);
+            }
+            AppEvent::WorkflowManagerAction { thread_id, action } => {
+                self.handle_workflow_manager_action(app_server, thread_id, action)
+                    .await;
+            }
             AppEvent::NewSession => {
                 self.start_fresh_session_with_summary_hint(
                     tui, app_server, /*session_start_source*/ None,

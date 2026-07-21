@@ -13,9 +13,11 @@ pub fn is_persisted_rollout_item(item: &RolloutItem, history_mode: ThreadHistory
         | RolloutItem::InterAgentCommunicationMetadata { .. } => true,
         RolloutItem::EventMsg(ev) => should_persist_event_msg(ev, history_mode),
         // Persist Codex executive markers so we can analyze flows (e.g., compaction, API turns).
+        // WorkflowState is the durable recovery source; lifecycle notifications are transient.
         RolloutItem::Compacted(_)
         | RolloutItem::TurnContext(_)
         | RolloutItem::WorldState(_)
+        | RolloutItem::WorkflowState(_)
         | RolloutItem::SessionMeta(_) => true,
     }
 }
@@ -178,6 +180,16 @@ pub fn should_persist_event_msg(ev: &EventMsg, history_mode: ThreadHistoryMode) 
         | EventMsg::CollabAgentInteractionBegin(_)
         | EventMsg::CollabWaitingBegin(_)
         | EventMsg::CollabCloseBegin(_)
-        | EventMsg::CollabResumeBegin(_) => false,
+        | EventMsg::CollabResumeBegin(_)
+        | EventMsg::WorkflowStarted(_)
+        | EventMsg::WorkflowProgress(_)
+        | EventMsg::WorkflowPaused(_)
+        | EventMsg::WorkflowCompleted(_)
+        | EventMsg::WorkflowFailed(_)
+        | EventMsg::WorkflowCancelled(_) => false,
     }
 }
+
+#[cfg(test)]
+#[path = "policy_tests.rs"]
+mod tests;

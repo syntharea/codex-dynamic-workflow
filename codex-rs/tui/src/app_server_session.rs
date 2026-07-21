@@ -4,6 +4,7 @@
 //! request/response plumbing out of `App` and `ChatWidget`.
 
 mod fs;
+mod workflows;
 
 use crate::bottom_pane::FeedbackAudience;
 use crate::legacy_core::config::Config;

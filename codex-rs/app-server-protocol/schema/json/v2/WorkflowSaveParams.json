@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "workflowId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "threadId",
+    "workflowId"
+  ],
+  "title": "WorkflowSaveParams",
+  "type": "object"
+}

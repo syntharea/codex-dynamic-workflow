@@ -115,13 +115,31 @@ macro_rules! experimental_type_entry {
 pub enum ClientRequestSerializationScope {
     Global(&'static str),
     GlobalSharedRead(&'static str),
-    Thread { thread_id: String },
-    ThreadPath { path: PathBuf },
-    CommandExecProcess { process_id: String },
-    Process { process_handle: String },
-    FuzzyFileSearchSession { session_id: String },
-    FsWatch { watch_id: String },
-    McpOauth { server_name: String },
+    Thread {
+        thread_id: String,
+    },
+    Workflow {
+        thread_id: String,
+        workflow_id: String,
+    },
+    ThreadPath {
+        path: PathBuf,
+    },
+    CommandExecProcess {
+        process_id: String,
+    },
+    Process {
+        process_handle: String,
+    },
+    FuzzyFileSearchSession {
+        session_id: String,
+    },
+    FsWatch {
+        watch_id: String,
+    },
+    McpOauth {
+        server_name: String,
+    },
 }
 
 macro_rules! serialization_scope_expr {
@@ -137,6 +155,12 @@ macro_rules! serialization_scope_expr {
     ($actual_params:ident, thread_id($params:ident . $field:ident)) => {
         Some(ClientRequestSerializationScope::Thread {
             thread_id: $actual_params.$field.clone(),
+        })
+    };
+    ($actual_params:ident, workflow($params:ident . $thread_field:ident, $params2:ident . $workflow_field:ident)) => {
+        Some(ClientRequestSerializationScope::Workflow {
+            thread_id: $actual_params.$thread_field.clone(),
+            workflow_id: $actual_params.$workflow_field.clone(),
         })
     };
     ($actual_params:ident, optional_thread_id($params:ident . $field:ident)) => {
@@ -646,6 +670,57 @@ client_request_definitions! {
         params: v2::ThreadReadParams,
         serialization: thread_id(params.thread_id),
         response: v2::ThreadReadResponse,
+    },
+    // Workflow lifecycle
+    WorkflowStart => "workflow/start" {
+        params: v2::WorkflowStartParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::WorkflowStartResponse,
+    },
+    WorkflowRead => "workflow/read" {
+        params: v2::WorkflowReadParams,
+        serialization: workflow(params.thread_id, params.workflow_id),
+        response: v2::WorkflowReadResponse,
+    },
+    WorkflowList => "workflow/list" {
+        params: v2::WorkflowListParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::WorkflowListResponse,
+    },
+    WorkflowPause => "workflow/pause" {
+        params: v2::WorkflowPauseParams,
+        serialization: workflow(params.thread_id, params.workflow_id),
+        response: v2::WorkflowPauseResponse,
+    },
+    WorkflowResume => "workflow/resume" {
+        params: v2::WorkflowResumeParams,
+        serialization: workflow(params.thread_id, params.workflow_id),
+        response: v2::WorkflowResumeResponse,
+    },
+    WorkflowCancel => "workflow/cancel" {
+        params: v2::WorkflowCancelParams,
+        serialization: workflow(params.thread_id, params.workflow_id),
+        response: v2::WorkflowCancelResponse,
+    },
+    WorkflowRetry => "workflow/retry" {
+        params: v2::WorkflowRetryParams,
+        serialization: workflow(params.thread_id, params.workflow_id),
+        response: v2::WorkflowRetryResponse,
+    },
+    WorkflowSave => "workflow/save" {
+        params: v2::WorkflowSaveParams,
+        serialization: workflow(params.thread_id, params.workflow_id),
+        response: v2::WorkflowSaveResponse,
+    },
+    WorkflowRun => "workflow/run" {
+        params: v2::WorkflowRunParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::WorkflowRunResponse,
+    },
+    WorkflowDelete => "workflow/delete" {
+        params: v2::WorkflowDeleteParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::WorkflowDeleteResponse,
     },
     #[experimental("thread/turns/list")]
     ThreadTurnsList => "thread/turns/list" {
@@ -1643,6 +1718,12 @@ server_notification_definitions! {
     ThreadDeleted => "thread/deleted" (v2::ThreadDeletedNotification),
     ThreadUnarchived => "thread/unarchived" (v2::ThreadUnarchivedNotification),
     ThreadClosed => "thread/closed" (v2::ThreadClosedNotification),
+    WorkflowStarted => "workflow/started" (v2::WorkflowStartedNotification),
+    WorkflowProgress => "workflow/progress" (v2::WorkflowProgressNotification),
+    WorkflowPaused => "workflow/paused" (v2::WorkflowPausedNotification),
+    WorkflowCompleted => "workflow/completed" (v2::WorkflowCompletedNotification),
+    WorkflowFailed => "workflow/failed" (v2::WorkflowFailedNotification),
+    WorkflowCancelled => "workflow/cancelled" (v2::WorkflowCancelledNotification),
     SkillsChanged => "skills/changed" (v2::SkillsChangedNotification),
     ThreadNameUpdated => "thread/name/updated" (v2::ThreadNameUpdatedNotification),
     ThreadGoalUpdated => "thread/goal/updated" (v2::ThreadGoalUpdatedNotification),
@@ -1796,6 +1877,227 @@ mod tests {
     fn request_id() -> RequestId {
         const REQUEST_ID: i64 = 1;
         RequestId::Integer(REQUEST_ID)
+    }
+
+    fn workflow() -> v2::Workflow {
+        v2::Workflow {
+            workflow_id: "workflow-1".to_string(),
+            title: "Workflow".to_string(),
+            status: v2::WorkflowStatus::Running,
+            tasks: Vec::new(),
+            completed_tasks: 0,
+            running_tasks: 1,
+            queued_tasks: 0,
+            blocked_tasks: 0,
+            failed_tasks: 0,
+            summary: "Running".to_string(),
+        }
+    }
+
+    #[test]
+    fn workflow_requests_are_registered_with_expected_serialization_scopes() {
+        let thread_scope = Some(ClientRequestSerializationScope::Thread {
+            thread_id: "thread-1".to_string(),
+        });
+        let workflow_scope = Some(ClientRequestSerializationScope::Workflow {
+            thread_id: "thread-1".to_string(),
+            workflow_id: "workflow-1".to_string(),
+        });
+        let requests = vec![
+            (
+                ClientRequest::WorkflowStart {
+                    request_id: request_id(),
+                    params: v2::WorkflowStartParams {
+                        thread_id: "thread-1".to_string(),
+                        objective: "Ship workflow API".to_string(),
+                        policy: None,
+                    },
+                },
+                "workflow/start",
+                thread_scope.clone(),
+            ),
+            (
+                ClientRequest::WorkflowRead {
+                    request_id: request_id(),
+                    params: v2::WorkflowReadParams {
+                        thread_id: "thread-1".to_string(),
+                        workflow_id: "workflow-1".to_string(),
+                    },
+                },
+                "workflow/read",
+                workflow_scope.clone(),
+            ),
+            (
+                ClientRequest::WorkflowList {
+                    request_id: request_id(),
+                    params: v2::WorkflowListParams {
+                        thread_id: "thread-1".to_string(),
+                        cursor: None,
+                        limit: None,
+                    },
+                },
+                "workflow/list",
+                thread_scope.clone(),
+            ),
+            (
+                ClientRequest::WorkflowPause {
+                    request_id: request_id(),
+                    params: v2::WorkflowPauseParams {
+                        thread_id: "thread-1".to_string(),
+                        workflow_id: "workflow-1".to_string(),
+                    },
+                },
+                "workflow/pause",
+                workflow_scope.clone(),
+            ),
+            (
+                ClientRequest::WorkflowResume {
+                    request_id: request_id(),
+                    params: v2::WorkflowResumeParams {
+                        thread_id: "thread-1".to_string(),
+                        workflow_id: "workflow-1".to_string(),
+                    },
+                },
+                "workflow/resume",
+                workflow_scope.clone(),
+            ),
+            (
+                ClientRequest::WorkflowCancel {
+                    request_id: request_id(),
+                    params: v2::WorkflowCancelParams {
+                        thread_id: "thread-1".to_string(),
+                        workflow_id: "workflow-1".to_string(),
+                    },
+                },
+                "workflow/cancel",
+                workflow_scope.clone(),
+            ),
+            (
+                ClientRequest::WorkflowRetry {
+                    request_id: request_id(),
+                    params: v2::WorkflowRetryParams {
+                        thread_id: "thread-1".to_string(),
+                        workflow_id: "workflow-1".to_string(),
+                    },
+                },
+                "workflow/retry",
+                workflow_scope.clone(),
+            ),
+            (
+                ClientRequest::WorkflowSave {
+                    request_id: request_id(),
+                    params: v2::WorkflowSaveParams {
+                        thread_id: "thread-1".to_string(),
+                        workflow_id: "workflow-1".to_string(),
+                        name: "release".to_string(),
+                    },
+                },
+                "workflow/save",
+                workflow_scope,
+            ),
+            (
+                ClientRequest::WorkflowRun {
+                    request_id: request_id(),
+                    params: v2::WorkflowRunParams {
+                        thread_id: "thread-1".to_string(),
+                        name: "release".to_string(),
+                        task_overrides: None,
+                    },
+                },
+                "workflow/run",
+                thread_scope.clone(),
+            ),
+            (
+                ClientRequest::WorkflowDelete {
+                    request_id: request_id(),
+                    params: v2::WorkflowDeleteParams {
+                        thread_id: "thread-1".to_string(),
+                        name: "release".to_string(),
+                    },
+                },
+                "workflow/delete",
+                thread_scope,
+            ),
+        ];
+
+        for (request, method, scope) in requests {
+            assert_eq!(request.method(), method);
+            assert_eq!(request.serialization_scope(), scope);
+            assert_eq!(
+                crate::experimental_api::ExperimentalApi::experimental_reason(&request),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn workflow_notifications_are_registered_and_not_experimental() {
+        let workflow = workflow();
+        let notifications = vec![
+            (
+                ServerNotification::WorkflowStarted(v2::WorkflowStartedNotification {
+                    thread_id: "thread-1".to_string(),
+                    workflow: workflow.clone(),
+                }),
+                "workflow/started",
+            ),
+            (
+                ServerNotification::WorkflowProgress(v2::WorkflowProgressNotification {
+                    thread_id: "thread-1".to_string(),
+                    workflow_id: "workflow-1".to_string(),
+                    status: v2::WorkflowStatus::Running,
+                    completed_tasks: 0,
+                    running_tasks: 1,
+                    queued_tasks: 0,
+                    blocked_tasks: 0,
+                    failed_tasks: 0,
+                    summary: "Running".to_string(),
+                }),
+                "workflow/progress",
+            ),
+            (
+                ServerNotification::WorkflowPaused(v2::WorkflowPausedNotification {
+                    thread_id: "thread-1".to_string(),
+                    workflow: workflow.clone(),
+                }),
+                "workflow/paused",
+            ),
+            (
+                ServerNotification::WorkflowCompleted(v2::WorkflowCompletedNotification {
+                    thread_id: "thread-1".to_string(),
+                    workflow: workflow.clone(),
+                }),
+                "workflow/completed",
+            ),
+            (
+                ServerNotification::WorkflowFailed(v2::WorkflowFailedNotification {
+                    thread_id: "thread-1".to_string(),
+                    workflow: workflow.clone(),
+                    error: "planner failed".to_string(),
+                }),
+                "workflow/failed",
+            ),
+            (
+                ServerNotification::WorkflowCancelled(v2::WorkflowCancelledNotification {
+                    thread_id: "thread-1".to_string(),
+                    workflow,
+                }),
+                "workflow/cancelled",
+            ),
+        ];
+
+        for (notification, method) in notifications {
+            assert_eq!(
+                serde_json::to_value(&notification)
+                    .expect("notification should serialize")
+                    .get("method"),
+                Some(&json!(method))
+            );
+            assert_eq!(
+                crate::experimental_api::ExperimentalApi::experimental_reason(&notification),
+                None
+            );
+        }
     }
 
     #[test]

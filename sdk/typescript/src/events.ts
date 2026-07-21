@@ -43,6 +43,97 @@ export type TurnFailedEvent = {
   error: ThreadError;
 };
 
+export type WorkflowEventStatus =
+  | "planning"
+  | "running"
+  | "pausing"
+  | "paused"
+  | "consolidating"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type WorkflowTaskEventStatus =
+  | "queued"
+  | "ready"
+  | "running"
+  | "waiting_for_approval"
+  | "succeeded"
+  | "failed"
+  | "blocked"
+  | "cancelled";
+
+export type WorkflowEventTask = {
+  task_id: string;
+  title: string;
+  status: WorkflowTaskEventStatus;
+  summary: string;
+  attempt: number;
+};
+
+export type WorkflowEventSnapshot = {
+  workflow_id: string;
+  title: string;
+  status: WorkflowEventStatus;
+  tasks: WorkflowEventTask[];
+  completed_tasks: number;
+  running_tasks: number;
+  queued_tasks: number;
+  blocked_tasks: number;
+  failed_tasks: number;
+  summary: string;
+};
+
+/** Emitted after the target workflow is created. */
+export type WorkflowStartedEvent = {
+  type: "workflow.started";
+  thread_id: string;
+  workflow: WorkflowEventSnapshot;
+};
+
+/** Reports bounded progress for the target workflow. */
+export type WorkflowProgressEvent = {
+  type: "workflow.progress";
+  thread_id: string;
+  workflow_id: string;
+  status: WorkflowEventStatus;
+  completed_tasks: number;
+  running_tasks: number;
+  queued_tasks: number;
+  blocked_tasks: number;
+  failed_tasks: number;
+  summary: string;
+};
+
+/** Reports that the target workflow is paused. This is not terminal. */
+export type WorkflowPausedEvent = {
+  type: "workflow.paused";
+  thread_id: string;
+  workflow: WorkflowEventSnapshot;
+};
+
+/** Reports successful completion of the target workflow. */
+export type WorkflowCompletedEvent = {
+  type: "workflow.completed";
+  thread_id: string;
+  workflow: WorkflowEventSnapshot;
+};
+
+/** Reports failure of the target workflow. */
+export type WorkflowFailedEvent = {
+  type: "workflow.failed";
+  thread_id: string;
+  workflow: WorkflowEventSnapshot;
+  error: string;
+};
+
+/** Reports cancellation of the target workflow. */
+export type WorkflowCancelledEvent = {
+  type: "workflow.cancelled";
+  thread_id: string;
+  workflow: WorkflowEventSnapshot;
+};
+
 /** Emitted when a new item is added to the thread. Typically the item is initially "in progress". */
 export type ItemStartedEvent = {
   type: "item.started";
@@ -78,6 +169,12 @@ export type ThreadEvent =
   | TurnStartedEvent
   | TurnCompletedEvent
   | TurnFailedEvent
+  | WorkflowStartedEvent
+  | WorkflowProgressEvent
+  | WorkflowPausedEvent
+  | WorkflowCompletedEvent
+  | WorkflowFailedEvent
+  | WorkflowCancelledEvent
   | ItemStartedEvent
   | ItemUpdatedEvent
   | ItemCompletedEvent

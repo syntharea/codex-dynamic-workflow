@@ -407,7 +407,13 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
         | EventMsg::ReasoningContentDelta(_)
         | EventMsg::ReasoningRawContentDelta(_)
         | EventMsg::CollabResumeBegin(_)
-        | EventMsg::CollabResumeEnd(_) => None,
+        | EventMsg::CollabResumeEnd(_)
+        | EventMsg::WorkflowStarted(_)
+        | EventMsg::WorkflowProgress(_)
+        | EventMsg::WorkflowPaused(_)
+        | EventMsg::WorkflowCompleted(_)
+        | EventMsg::WorkflowFailed(_)
+        | EventMsg::WorkflowCancelled(_) => None,
     }
 }
 
@@ -418,6 +424,12 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
         EventMsg::TurnComplete(_) => Some("turn_complete"),
         EventMsg::TurnAborted(_) => Some("turn_aborted"),
         EventMsg::ThreadRolledBack(_) => Some("thread_rolled_back"),
+        EventMsg::WorkflowStarted(_) => Some("workflow_started"),
+        EventMsg::WorkflowProgress(_) => Some("workflow_progress"),
+        EventMsg::WorkflowPaused(_) => Some("workflow_paused"),
+        EventMsg::WorkflowCompleted(_) => Some("workflow_completed"),
+        EventMsg::WorkflowFailed(_) => Some("workflow_failed"),
+        EventMsg::WorkflowCancelled(_) => Some("workflow_cancelled"),
         EventMsg::Error(_) => Some("error"),
         EventMsg::Warning(_) => Some("warning"),
         EventMsg::ShutdownComplete => Some("shutdown_complete"),

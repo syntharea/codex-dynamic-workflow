@@ -1180,6 +1180,9 @@ async fn read_head_summary(path: &Path, head_limit: usize) -> io::Result<HeadTai
             RolloutItem::WorldState(_) => {
                 // Not included in `head`; skip.
             }
+            RolloutItem::WorkflowState(_) => {
+                // Not included in `head`; skip.
+            }
             RolloutItem::Compacted(_) => {
                 // Not included in `head`; skip.
             }
@@ -1250,6 +1253,7 @@ pub async fn read_head_for_summary(path: &Path) -> io::Result<Vec<serde_json::Va
                 | RolloutItem::Compacted(_)
                 | RolloutItem::TurnContext(_)
                 | RolloutItem::WorldState(_)
+                | RolloutItem::WorkflowState(_)
                 | RolloutItem::EventMsg(_) => {}
             }
         }
@@ -1302,6 +1306,7 @@ pub async fn read_session_meta_line(path: &Path) -> io::Result<SessionMetaLine> 
             | RolloutItem::Compacted(_)
             | RolloutItem::TurnContext(_)
             | RolloutItem::WorldState(_)
+            | RolloutItem::WorkflowState(_)
             | RolloutItem::EventMsg(_) => {}
         }
     }

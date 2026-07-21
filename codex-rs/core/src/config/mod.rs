@@ -28,6 +28,7 @@ use codex_config::config_toml::ProjectConfig;
 use codex_config::config_toml::RealtimeAudioConfig;
 use codex_config::config_toml::RealtimeConfig;
 use codex_config::config_toml::ThreadStoreToml;
+use codex_config::config_toml::WorkflowsToml;
 use codex_config::config_toml::validate_model_providers;
 use codex_config::loader::load_config_layers_state;
 use codex_config::loader::project_trust_key;
@@ -70,6 +71,7 @@ use codex_features::FeaturesToml;
 use codex_features::MultiAgentV2ConfigToml;
 use codex_features::NetworkProxyConfigToml;
 use codex_features::TokenBudgetConfigToml;
+use codex_git_utils::get_git_repo_root_with_fs;
 use codex_git_utils::resolve_root_git_project_for_trust;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
@@ -204,10 +206,15 @@ impl Default for GhostSnapshotConfig {
 /// the context window.
 pub(crate) const AGENTS_MD_MAX_BYTES: usize = DEFAULT_PROJECT_DOC_MAX_BYTES; // 32 KiB
 pub(crate) const DEFAULT_AGENT_MAX_THREADS: Option<usize> = Some(6);
-pub(crate) const DEFAULT_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION: usize = 4;
+pub(crate) const FALLBACK_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION: usize = 4;
 pub(crate) const DEFAULT_MULTI_AGENT_V2_MIN_WAIT_TIMEOUT_MS: i64 = 10_000;
 pub(crate) const DEFAULT_MULTI_AGENT_V2_MAX_WAIT_TIMEOUT_MS: i64 = 3600 * 1000;
 pub(crate) const DEFAULT_MULTI_AGENT_V2_DEFAULT_WAIT_TIMEOUT_MS: i64 = 30_000;
+const DEFAULT_MAX_CONCURRENT_WORKFLOWS: usize = 4;
+const MAX_TASKS_PER_WORKFLOW: usize = 256;
+const DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS: usize = 16;
+const DEFAULT_MAX_WORKFLOW_TASK_ATTEMPTS: u8 = 2;
+const DEFAULT_WORKFLOW_PAUSE_TIMEOUT_SECONDS: u64 = 30;
 const DEFAULT_MULTI_AGENT_V2_ROOT_AGENT_USAGE_HINT_TEXT: &str = r#"You are `/root`, the primary agent in a team of agents collaborating to fulfill the user's goals.
 
 At the start of your turn, you are the active agent.
@@ -260,6 +267,12 @@ fn default_multi_agent_v2_usage_hint_text(usage_hint_text: &str, max_concurrency
     format!(
         "{usage_hint_text}\n{DEFAULT_MULTI_AGENT_V2_SHARED_USAGE_HINT_TEXT}\nThere are {max_concurrency} available concurrency slots, meaning that up to {max_concurrency} agents can be active at once, including you."
     )
+}
+
+fn default_multi_agent_v2_max_concurrent_threads_per_session() -> usize {
+    std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(FALLBACK_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION)
 }
 
 pub(crate) const HARD_MIN_MULTI_AGENT_V2_TIMEOUT_MS: i64 = 0;
@@ -811,6 +824,14 @@ pub struct Config {
     /// layer are resolved against this path.
     pub cwd: AbsolutePathBuf,
 
+    /// Root of the current Git checkout, including a linked worktree checkout.
+    pub git_checkout_root: Option<AbsolutePathBuf>,
+
+    /// Whether the current Git checkout root has its own explicit trusted
+    /// project entry. Trust inherited from a linked worktree's main repository
+    /// does not set this flag.
+    pub git_checkout_root_is_trusted: bool,
+
     /// Absolute runtime workspace roots for the session. Symbolic
     /// `:workspace_roots` permission entries are materialized against these
     /// roots while profile-defined workspace roots remain encoded directly in
@@ -1049,6 +1070,9 @@ pub struct Config {
     /// Settings specific to the task-path-based multi-agent tool surface.
     pub multi_agent_v2: MultiAgentV2Config,
 
+    /// Effective dynamic workflow execution limits.
+    pub workflows: WorkflowConfig,
+
     /// Context-window token budget configuration, when enabled.
     pub token_budget: Option<TokenBudgetConfig>,
     /// Shared token budget for the root thread and its sub-agents.
@@ -1211,8 +1235,47 @@ impl MultiAgentV2Config {
 impl Default for MultiAgentV2Config {
     fn default() -> Self {
         Self::defaults_for_max_concurrency(
-            DEFAULT_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION,
+            default_multi_agent_v2_max_concurrent_threads_per_session(),
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct WorkflowConfig {
+    pub max_concurrent_workflows: usize,
+    pub max_tasks_per_workflow: usize,
+    pub max_concurrent_tasks: usize,
+    pub max_task_attempts: u8,
+    pub pause_timeout_seconds: u64,
+}
+
+impl Default for WorkflowConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_workflows: DEFAULT_MAX_CONCURRENT_WORKFLOWS,
+            max_tasks_per_workflow: MAX_TASKS_PER_WORKFLOW,
+            max_concurrent_tasks: DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS,
+            max_task_attempts: DEFAULT_MAX_WORKFLOW_TASK_ATTEMPTS,
+            pause_timeout_seconds: DEFAULT_WORKFLOW_PAUSE_TIMEOUT_SECONDS,
+        }
+    }
+}
+
+impl WorkflowConfig {
+    pub fn workflow_limits(
+        &self,
+        agent_max_threads: Option<usize>,
+    ) -> codex_workflows::WorkflowLimits {
+        let defaults = codex_workflows::WorkflowLimits::default();
+        codex_workflows::WorkflowLimits {
+            max_tasks: self.max_tasks_per_workflow,
+            max_instruction_bytes: defaults.max_instruction_bytes,
+            max_concurrent_tasks: agent_max_threads
+                .map(|agent_max_threads| self.max_concurrent_tasks.min(agent_max_threads))
+                .unwrap_or(self.max_concurrent_tasks),
+            max_summary_bytes: defaults.max_summary_bytes,
+            max_task_attempts: self.max_task_attempts,
+        }
     }
 }
 
@@ -2546,7 +2609,7 @@ fn resolve_multi_agent_v2_config(config_toml: &ConfigToml) -> MultiAgentV2Config
                 .and_then(|agents| agents.max_concurrent_threads_per_session)
                 .map(|max_threads| max_threads.saturating_add(1))
         })
-        .unwrap_or(DEFAULT_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION);
+        .unwrap_or_else(default_multi_agent_v2_max_concurrent_threads_per_session);
     let default =
         MultiAgentV2Config::defaults_for_max_concurrency(max_concurrent_threads_per_session);
     let min_wait_timeout_ms = base
@@ -2614,6 +2677,71 @@ fn resolve_multi_agent_v2_config(config_toml: &ConfigToml) -> MultiAgentV2Config
         expose_spawn_agent_model_overrides,
         non_code_mode_only,
     }
+}
+
+fn resolve_workflow_config(workflows: Option<&WorkflowsToml>) -> std::io::Result<WorkflowConfig> {
+    let defaults = WorkflowConfig::default();
+    let configured = workflows.cloned().unwrap_or_default();
+
+    for (field, value) in [
+        (
+            "max_concurrent_workflows",
+            configured
+                .max_concurrent_workflows
+                .map(|value| value as u128),
+        ),
+        (
+            "max_tasks_per_workflow",
+            configured.max_tasks_per_workflow.map(|value| value as u128),
+        ),
+        (
+            "max_concurrent_tasks",
+            configured.max_concurrent_tasks.map(|value| value as u128),
+        ),
+        (
+            "max_task_attempts",
+            configured.max_task_attempts.map(u128::from),
+        ),
+        (
+            "pause_timeout_seconds",
+            configured.pause_timeout_seconds.map(u128::from),
+        ),
+    ] {
+        if value == Some(0) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("workflows.{field} must be at least 1"),
+            ));
+        }
+    }
+
+    if configured
+        .max_tasks_per_workflow
+        .is_some_and(|max_tasks| max_tasks > MAX_TASKS_PER_WORKFLOW)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("workflows.max_tasks_per_workflow must be at most {MAX_TASKS_PER_WORKFLOW}"),
+        ));
+    }
+
+    Ok(WorkflowConfig {
+        max_concurrent_workflows: configured
+            .max_concurrent_workflows
+            .unwrap_or(defaults.max_concurrent_workflows),
+        max_tasks_per_workflow: configured
+            .max_tasks_per_workflow
+            .unwrap_or(defaults.max_tasks_per_workflow),
+        max_concurrent_tasks: configured
+            .max_concurrent_tasks
+            .unwrap_or(defaults.max_concurrent_tasks),
+        max_task_attempts: configured
+            .max_task_attempts
+            .unwrap_or(defaults.max_task_attempts),
+        pause_timeout_seconds: configured
+            .pause_timeout_seconds
+            .unwrap_or(defaults.pause_timeout_seconds),
+    })
 }
 
 fn resolve_token_budget_config(
@@ -3220,11 +3348,18 @@ impl Config {
             .into_iter()
             .map(|path| AbsolutePathBuf::resolve_path_against_base(path, resolved_cwd.as_path()))
             .collect();
-        let repo_root = resolve_root_git_project_for_trust(fs, &resolved_cwd).await;
+        let git_checkout_root = get_git_repo_root_with_fs(fs, &resolved_cwd).await;
+        let git_checkout_root_is_trusted = git_checkout_root
+            .as_ref()
+            .and_then(|checkout_root| {
+                cfg.get_active_project(checkout_root.as_path(), /*repo_root*/ None)
+            })
+            .is_some_and(|project| project.is_trusted());
+        let main_trust_root = resolve_root_git_project_for_trust(fs, &resolved_cwd).await;
         let active_project = cfg
             .get_active_project(
                 resolved_cwd.as_path(),
-                repo_root.as_ref().map(AbsolutePathBuf::as_path),
+                main_trust_root.as_ref().map(AbsolutePathBuf::as_path),
             )
             .unwrap_or(ProjectConfig { trust_level: None });
         let permission_config_syntax = resolve_permission_config_syntax(
@@ -3640,6 +3775,7 @@ impl Config {
             .as_ref()
             .and_then(|agents| agents.interrupt_message)
             .unwrap_or(true);
+        let workflows = resolve_workflow_config(cfg.workflows.as_ref())?;
         let background_terminal_max_timeout = cfg
             .background_terminal_max_timeout
             .unwrap_or(DEFAULT_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS)
@@ -3906,6 +4042,8 @@ impl Config {
             model_provider_id,
             model_provider,
             cwd: resolved_cwd,
+            git_checkout_root,
+            git_checkout_root_is_trusted,
             workspace_roots: workspace_roots.clone(),
             workspace_roots_explicit,
             startup_warnings,
@@ -4059,6 +4197,7 @@ impl Config {
             background_terminal_max_timeout,
             ghost_snapshot,
             multi_agent_v2,
+            workflows,
             token_budget,
             rollout_budget,
             current_time_reminder,

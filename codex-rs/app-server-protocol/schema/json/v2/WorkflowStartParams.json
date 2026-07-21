@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "WorkflowPolicy": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "ultracode"
+              ],
+              "title": "UltracodeWorkflowPolicyType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "UltracodeWorkflowPolicy",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "deepResearch"
+              ],
+              "title": "DeepResearchWorkflowPolicyType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "DeepResearchWorkflowPolicy",
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "properties": {
+    "objective": {
+      "type": "string"
+    },
+    "policy": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/WorkflowPolicy"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "objective",
+    "threadId"
+  ],
+  "title": "WorkflowStartParams",
+  "type": "object"
+}

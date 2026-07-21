@@ -1,0 +1,10 @@
+---
+source: tui/src/chatwidget/tests/workflows.rs
+expression: "render_bottom_popup(&chat, 92)"
+---
+  Workflows
+  Open a run or saved workflow to manage it.
+
+› 1. [paused] Live workflow  1 completed · 0 running · 2 queued · 0 blocked · 0 failed
+
+  Press enter to confirm or esc to go back

@@ -14,6 +14,7 @@ use codex_protocol::protocol::TurnAbortedEvent;
 use codex_protocol::protocol::TurnCompleteEvent;
 use codex_protocol::protocol::TurnStartedEvent;
 use codex_protocol::user_input::UserInput;
+use codex_protocol::workflow::WorkflowStateItem;
 use pretty_assertions::assert_eq;
 
 use super::*;
@@ -163,6 +164,17 @@ fn ignores_legacy_abort_without_turn_id_and_context_only_records() {
 
     assert!(aborted.is_empty());
     assert!(compacted.is_empty());
+}
+
+#[test]
+fn ignores_workflow_state_without_changing_thread_history() {
+    let state = WorkflowStateItem::new("workflow-1", serde_json::json!({"status": "running"}))
+        .expect("valid workflow state");
+
+    assert_eq!(
+        project(RolloutItem::WorkflowState(state)),
+        ThreadHistoryChangeSet::default()
+    );
 }
 
 #[test]

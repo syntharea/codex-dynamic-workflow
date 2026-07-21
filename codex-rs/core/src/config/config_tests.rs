@@ -97,6 +97,7 @@ use codex_protocol::protocol::NetworkAccess;
 use codex_protocol::protocol::RealtimeVoice;
 use codex_protocol::protocol::SandboxPolicy;
 use codex_utils_path_uri::LegacyAppPathString;
+use codex_workflows::WorkflowLimits;
 use serde::Deserialize;
 use tempfile::tempdir;
 
@@ -173,6 +174,12 @@ fn http_mcp(url: &str) -> McpServerConfig {
         oauth_resource: None,
         tools: HashMap::new(),
     }
+}
+
+fn expected_default_multi_agent_v2_max_concurrent_threads_per_session() -> usize {
+    std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(FALLBACK_MULTI_AGENT_V2_MAX_CONCURRENT_THREADS_PER_SESSION)
 }
 
 async fn derive_legacy_sandbox_policy_for_test(
@@ -8401,6 +8408,392 @@ async fn load_config_resolves_agent_controls() -> std::io::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn config_tracks_trusted_regular_git_checkout() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let repository = TempDir::new()?;
+    let nested_cwd = repository.path().join("nested");
+    std::fs::create_dir_all(repository.path().join(".git"))?;
+    std::fs::create_dir_all(&nested_cwd)?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        toml::to_string(&ConfigToml {
+            projects: Some(HashMap::from([(
+                repository.path().to_string_lossy().into_owned(),
+                ProjectConfig {
+                    trust_level: Some(TrustLevel::Trusted),
+                },
+            )])),
+            ..Default::default()
+        })
+        .expect("project trust config should serialize"),
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(nested_cwd))
+        .build()
+        .await?;
+
+    assert_eq!(config.git_checkout_root, Some(repository.abs()));
+    assert!(config.git_checkout_root_is_trusted);
+    assert!(config.active_project.is_trusted());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn linked_git_checkout_requires_its_own_exact_trust_entry() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let repository_parent = TempDir::new()?;
+    let main_root = repository_parent.path().join("main");
+    let checkout_root = repository_parent.path().join("linked");
+    let nested_cwd = checkout_root.join("nested");
+    let checkout_git_dir = main_root.join(".git/worktrees/linked");
+    std::fs::create_dir_all(&checkout_git_dir)?;
+    std::fs::create_dir_all(&nested_cwd)?;
+    std::fs::write(
+        checkout_root.join(".git"),
+        format!("gitdir: {}\n", checkout_git_dir.display()),
+    )?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        toml::to_string(&ConfigToml {
+            projects: Some(HashMap::from([(
+                main_root.to_string_lossy().into_owned(),
+                ProjectConfig {
+                    trust_level: Some(TrustLevel::Trusted),
+                },
+            )])),
+            ..Default::default()
+        })
+        .expect("main checkout trust config should serialize"),
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(nested_cwd.clone()))
+        .build()
+        .await?;
+
+    assert_eq!(config.git_checkout_root, Some(checkout_root.abs()));
+    assert!(!config.git_checkout_root_is_trusted);
+    assert!(config.active_project.is_trusted());
+
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        toml::to_string(&ConfigToml {
+            projects: Some(HashMap::from([
+                (
+                    main_root.to_string_lossy().into_owned(),
+                    ProjectConfig {
+                        trust_level: Some(TrustLevel::Trusted),
+                    },
+                ),
+                (
+                    checkout_root.to_string_lossy().into_owned(),
+                    ProjectConfig {
+                        trust_level: Some(TrustLevel::Trusted),
+                    },
+                ),
+            ])),
+            ..Default::default()
+        })
+        .expect("linked checkout trust config should serialize"),
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(nested_cwd))
+        .build()
+        .await?;
+
+    assert_eq!(config.git_checkout_root, Some(checkout_root.abs()));
+    assert!(config.git_checkout_root_is_trusted);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn workflow_config_defaults_are_bounded() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"[workflows]
+max_concurrent_tasks = 8
+"#,
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .build()
+        .await?;
+
+    assert_eq!(
+        config.workflows,
+        WorkflowConfig {
+            max_concurrent_workflows: 4,
+            max_tasks_per_workflow: 256,
+            max_concurrent_tasks: 8,
+            max_task_attempts: 2,
+            pause_timeout_seconds: 30,
+        }
+    );
+    assert_eq!(
+        config
+            .workflows
+            .workflow_limits(config.effective_agent_max_threads(MultiAgentVersion::V1)),
+        WorkflowLimits {
+            max_tasks: 256,
+            max_instruction_bytes: WorkflowLimits::default().max_instruction_bytes,
+            max_concurrent_tasks: 6,
+            max_summary_bytes: WorkflowLimits::default().max_summary_bytes,
+            max_task_attempts: 2,
+        }
+    );
+    assert!(config.features.enabled(Feature::DynamicWorkflows));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn workflow_config_overrides_all_limits() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"[workflows]
+max_concurrent_workflows = 7
+max_tasks_per_workflow = 128
+max_concurrent_tasks = 11
+max_task_attempts = 5
+pause_timeout_seconds = 90
+"#,
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .build()
+        .await?;
+
+    assert_eq!(
+        config.workflows,
+        WorkflowConfig {
+            max_concurrent_workflows: 7,
+            max_tasks_per_workflow: 128,
+            max_concurrent_tasks: 11,
+            max_task_attempts: 5,
+            pause_timeout_seconds: 90,
+        }
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn workflow_config_accepts_max_tasks_per_workflow_at_256() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        "[workflows]\nmax_tasks_per_workflow = 256\n",
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .build()
+        .await?;
+
+    assert_eq!(config.workflows.max_tasks_per_workflow, 256);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn workflow_config_rejects_max_tasks_per_workflow_above_256() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        "[workflows]\nmax_tasks_per_workflow = 257\n",
+    )?;
+
+    let error = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .build()
+        .await
+        .expect_err("max_tasks_per_workflow above 256 should fail");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(
+        error.to_string(),
+        "workflows.max_tasks_per_workflow must be at most 256"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn workflow_config_maps_task_attempt_limit_into_domain_limits() {
+    let config = WorkflowConfig {
+        max_task_attempts: 7,
+        ..WorkflowConfig::default()
+    };
+
+    assert_eq!(config.workflow_limits(Some(32)).max_task_attempts, 7);
+}
+
+#[tokio::test]
+async fn workflow_config_rejects_zero_limits() -> std::io::Result<()> {
+    for field in [
+        "max_concurrent_workflows",
+        "max_tasks_per_workflow",
+        "max_concurrent_tasks",
+        "max_task_attempts",
+        "pause_timeout_seconds",
+    ] {
+        let codex_home = TempDir::new()?;
+        std::fs::write(
+            codex_home.path().join(CONFIG_TOML_FILE),
+            format!("[workflows]\n{field} = 0\n"),
+        )?;
+
+        let error = ConfigBuilder::without_managed_config_for_tests()
+            .codex_home(codex_home.path().to_path_buf())
+            .fallback_cwd(Some(codex_home.path().to_path_buf()))
+            .build()
+            .await
+            .expect_err("zero workflow limits should fail");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(
+            error.to_string(),
+            format!("workflows.{field} must be at least 1")
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn workflow_task_concurrency_is_capped_by_agent_limit() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    std::fs::write(
+        codex_home.path().join(CONFIG_TOML_FILE),
+        r#"[agents]
+max_concurrent_threads_per_session = 3
+
+[workflows]
+max_concurrent_tasks = 16
+"#,
+    )?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .build()
+        .await?;
+
+    assert_eq!(
+        config
+            .workflows
+            .workflow_limits(config.effective_agent_max_threads(MultiAgentVersion::V1)),
+        WorkflowLimits {
+            max_tasks: 256,
+            max_instruction_bytes: WorkflowLimits::default().max_instruction_bytes,
+            max_concurrent_tasks: 3,
+            max_summary_bytes: WorkflowLimits::default().max_summary_bytes,
+            max_task_attempts: 2,
+        }
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn workflow_config_respects_user_profile_project_precedence() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let workspace = TempDir::new()?;
+    let user_file = codex_home.abs().join(CONFIG_TOML_FILE);
+    let project_dot_codex = workspace.abs().join(".codex");
+    let layer_stack = ConfigLayerStack::new(
+        vec![
+            ConfigLayerEntry::new(
+                ConfigLayerSource::User {
+                    file: user_file.clone(),
+                    profile: None,
+                },
+                toml::toml! {
+                    [workflows]
+                    max_concurrent_workflows = 5
+                    max_tasks_per_workflow = 100
+                    max_concurrent_tasks = 7
+                    max_task_attempts = 3
+                    pause_timeout_seconds = 40
+                }
+                .into(),
+            ),
+            ConfigLayerEntry::new(
+                ConfigLayerSource::User {
+                    file: user_file,
+                    profile: Some("dev".to_string()),
+                },
+                toml::toml! {
+                    [workflows]
+                    max_tasks_per_workflow = 200
+                    max_concurrent_tasks = 8
+                    max_task_attempts = 4
+                }
+                .into(),
+            ),
+            ConfigLayerEntry::new(
+                ConfigLayerSource::Project {
+                    dot_codex_folder: project_dot_codex,
+                },
+                toml::toml! {
+                    [workflows]
+                    max_concurrent_tasks = 9
+                    pause_timeout_seconds = 45
+                }
+                .into(),
+            ),
+        ],
+        Default::default(),
+        Default::default(),
+    )
+    .map_err(std::io::Error::other)?;
+    let config_toml = layer_stack
+        .effective_config()
+        .try_into()
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+
+    let config = Config::load_config_with_layer_stack(
+        LOCAL_FS.as_ref(),
+        config_toml,
+        ConfigOverrides {
+            cwd: Some(workspace.path().to_path_buf()),
+            ..Default::default()
+        },
+        codex_home.abs(),
+        layer_stack,
+    )
+    .await?;
+
+    assert_eq!(
+        config.workflows,
+        WorkflowConfig {
+            max_concurrent_workflows: 5,
+            max_tasks_per_workflow: 200,
+            max_concurrent_tasks: 9,
+            max_task_attempts: 4,
+            pause_timeout_seconds: 45,
+        }
+    );
+
+    Ok(())
+}
+
 #[test]
 fn agents_max_threads_alias_matches_canonical_config() {
     let canonical: ConfigToml = toml::from_str(
@@ -10603,12 +10996,13 @@ enabled = true
         config.multi_agent_v2,
         resolve_multi_agent_v2_config(&ConfigToml::default())
     );
+    let expected_thread_cap = expected_default_multi_agent_v2_max_concurrent_threads_per_session();
     assert_eq!(
         (
             config.agent_max_threads,
             config.effective_agent_max_threads(MultiAgentVersion::V2)
         ),
-        (None, Some(3))
+        (None, Some(expected_thread_cap.saturating_sub(1)))
     );
 
     Ok(())

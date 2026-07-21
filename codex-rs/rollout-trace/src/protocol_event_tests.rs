@@ -7,13 +7,106 @@ use codex_protocol::protocol::ExecCommandSource;
 use codex_protocol::protocol::ExecCommandStatus;
 use codex_protocol::protocol::SubAgentActivityEvent;
 use codex_protocol::protocol::SubAgentActivityKind;
+use codex_protocol::protocol::WorkflowCancelledEvent;
+use codex_protocol::protocol::WorkflowCompletedEvent;
+use codex_protocol::protocol::WorkflowFailedEvent;
+use codex_protocol::protocol::WorkflowPausedEvent;
+use codex_protocol::protocol::WorkflowProgressEvent;
+use codex_protocol::protocol::WorkflowStartedEvent;
+use codex_protocol::protocol::WorkflowStatus;
+use codex_protocol::protocol::WorkflowSummary;
+use codex_protocol::workflow::WorkflowId;
+use codex_protocol::workflow::WorkflowText;
+use codex_protocol::workflow::WorkflowTitle;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::time::Duration;
 
 use super::ToolRuntimeTraceEvent;
 use super::tool_runtime_trace_event;
+use super::wrapped_protocol_event_type;
 use crate::ExecutionStatus;
+
+fn workflow_summary() -> WorkflowSummary {
+    WorkflowSummary::try_new(
+        WorkflowId::try_new("workflow-1").expect("bounded workflow id"),
+        WorkflowTitle::new("Example workflow").expect("bounded title"),
+        WorkflowStatus::Running,
+        Vec::new(),
+        /*completed_tasks*/ 0,
+        /*running_tasks*/ 0,
+        /*queued_tasks*/ 0,
+        /*blocked_tasks*/ 0,
+        /*failed_tasks*/ 0,
+        WorkflowText::new("In progress").expect("bounded summary"),
+    )
+    .expect("valid workflow summary")
+}
+
+#[test]
+fn workflow_lifecycle_events_have_readable_trace_types() {
+    let summary = workflow_summary();
+    let workflow_id = WorkflowId::try_new("workflow-1").expect("bounded workflow id");
+    let events = [
+        (
+            EventMsg::WorkflowStarted(
+                WorkflowStartedEvent::try_new(workflow_id.clone(), summary.clone())
+                    .expect("matching workflow id"),
+            ),
+            "workflow_started",
+        ),
+        (
+            EventMsg::WorkflowProgress(WorkflowProgressEvent::new(
+                workflow_id.clone(),
+                WorkflowStatus::Running,
+                /*completed_tasks*/ 1,
+                /*running_tasks*/ 1,
+                /*queued_tasks*/ 0,
+                /*blocked_tasks*/ 0,
+                /*failed_tasks*/ 0,
+                WorkflowText::new("Running task").expect("bounded summary"),
+            )),
+            "workflow_progress",
+        ),
+        (
+            EventMsg::WorkflowPaused(
+                WorkflowPausedEvent::try_new(workflow_id.clone(), summary.clone())
+                    .expect("matching workflow id"),
+            ),
+            "workflow_paused",
+        ),
+        (
+            EventMsg::WorkflowCompleted(
+                WorkflowCompletedEvent::try_new(workflow_id.clone(), summary.clone())
+                    .expect("matching workflow id"),
+            ),
+            "workflow_completed",
+        ),
+        (
+            EventMsg::WorkflowFailed(
+                WorkflowFailedEvent::try_new(
+                    workflow_id.clone(),
+                    summary.clone(),
+                    WorkflowText::new("failed").expect("bounded error"),
+                )
+                .expect("matching workflow id"),
+            ),
+            "workflow_failed",
+        ),
+        (
+            EventMsg::WorkflowCancelled(
+                WorkflowCancelledEvent::try_new(workflow_id, summary)
+                    .expect("matching workflow id"),
+            ),
+            "workflow_cancelled",
+        ),
+    ];
+
+    for (event, expected_type) in events {
+        assert_eq!(wrapped_protocol_event_type(&event), Some(expected_type));
+        assert!(tool_runtime_trace_event(&event).is_none());
+    }
+}
 
 #[test]
 fn sub_agent_activity_is_a_terminal_tool_runtime_event() -> anyhow::Result<()> {

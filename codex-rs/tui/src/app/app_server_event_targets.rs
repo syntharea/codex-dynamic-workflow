@@ -156,6 +156,16 @@ pub(super) fn server_notification_thread_target(
         ServerNotification::ThreadRealtimeClosed(notification) => {
             Some(notification.thread_id.as_str())
         }
+        ServerNotification::WorkflowStarted(notification) => Some(notification.thread_id.as_str()),
+        ServerNotification::WorkflowProgress(notification) => Some(notification.thread_id.as_str()),
+        ServerNotification::WorkflowPaused(notification) => Some(notification.thread_id.as_str()),
+        ServerNotification::WorkflowCompleted(notification) => {
+            Some(notification.thread_id.as_str())
+        }
+        ServerNotification::WorkflowFailed(notification) => Some(notification.thread_id.as_str()),
+        ServerNotification::WorkflowCancelled(notification) => {
+            Some(notification.thread_id.as_str())
+        }
         ServerNotification::Warning(notification) => notification.thread_id.as_deref(),
         ServerNotification::GuardianWarning(notification) => Some(notification.thread_id.as_str()),
         ServerNotification::McpServerStatusUpdated(notification) => {
@@ -209,12 +219,79 @@ mod tests {
     use codex_app_server_protocol::ThreadSettings;
     use codex_app_server_protocol::ThreadSettingsUpdatedNotification;
     use codex_app_server_protocol::WarningNotification;
+    use codex_app_server_protocol::Workflow;
+    use codex_app_server_protocol::WorkflowCancelledNotification;
+    use codex_app_server_protocol::WorkflowCompletedNotification;
+    use codex_app_server_protocol::WorkflowFailedNotification;
+    use codex_app_server_protocol::WorkflowPausedNotification;
+    use codex_app_server_protocol::WorkflowProgressNotification;
+    use codex_app_server_protocol::WorkflowStartedNotification;
+    use codex_app_server_protocol::WorkflowStatus;
     use codex_protocol::ThreadId;
     use codex_protocol::config_types::CollaborationMode;
     use codex_protocol::config_types::ModeKind;
     use codex_protocol::config_types::Settings;
     use codex_protocol::openai_models::ReasoningEffort;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn workflow_notifications_target_their_thread() {
+        let thread_id = ThreadId::new();
+        let thread_id_string = thread_id.to_string();
+        let workflow = Workflow {
+            workflow_id: "wf-1".to_string(),
+            title: "Workflow".to_string(),
+            status: WorkflowStatus::Running,
+            tasks: Vec::new(),
+            completed_tasks: 0,
+            running_tasks: 1,
+            queued_tasks: 0,
+            blocked_tasks: 0,
+            failed_tasks: 0,
+            summary: String::new(),
+        };
+        let notifications = [
+            ServerNotification::WorkflowStarted(WorkflowStartedNotification {
+                thread_id: thread_id_string.clone(),
+                workflow: workflow.clone(),
+            }),
+            ServerNotification::WorkflowProgress(WorkflowProgressNotification {
+                thread_id: thread_id_string.clone(),
+                workflow_id: workflow.workflow_id.clone(),
+                status: WorkflowStatus::Running,
+                completed_tasks: 0,
+                running_tasks: 1,
+                queued_tasks: 0,
+                blocked_tasks: 0,
+                failed_tasks: 0,
+                summary: String::new(),
+            }),
+            ServerNotification::WorkflowPaused(WorkflowPausedNotification {
+                thread_id: thread_id_string.clone(),
+                workflow: workflow.clone(),
+            }),
+            ServerNotification::WorkflowCompleted(WorkflowCompletedNotification {
+                thread_id: thread_id_string.clone(),
+                workflow: workflow.clone(),
+            }),
+            ServerNotification::WorkflowFailed(WorkflowFailedNotification {
+                thread_id: thread_id_string.clone(),
+                workflow: workflow.clone(),
+                error: "failed".to_string(),
+            }),
+            ServerNotification::WorkflowCancelled(WorkflowCancelledNotification {
+                thread_id: thread_id_string,
+                workflow,
+            }),
+        ];
+
+        for notification in notifications {
+            assert_eq!(
+                server_notification_thread_target(&notification),
+                ServerNotificationThreadTarget::Thread(thread_id)
+            );
+        }
+    }
 
     fn test_thread_settings() -> ThreadSettings {
         ThreadSettings {

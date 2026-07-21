@@ -500,6 +500,9 @@
             "deferred_executor": {
               "type": "boolean"
             },
+            "dynamic_workflows": {
+              "type": "boolean"
+            },
             "elevated_windows_sandbox": {
               "type": "boolean"
             },
@@ -4675,6 +4678,38 @@
         }
       ]
     },
+    "WorkflowsToml": {
+      "additionalProperties": false,
+      "properties": {
+        "max_concurrent_tasks": {
+          "format": "uint",
+          "minimum": 1.0,
+          "type": "integer"
+        },
+        "max_concurrent_workflows": {
+          "format": "uint",
+          "minimum": 1.0,
+          "type": "integer"
+        },
+        "max_task_attempts": {
+          "format": "uint8",
+          "minimum": 1.0,
+          "type": "integer"
+        },
+        "max_tasks_per_workflow": {
+          "format": "uint",
+          "maximum": 256.0,
+          "minimum": 1.0,
+          "type": "integer"
+        },
+        "pause_timeout_seconds": {
+          "format": "uint64",
+          "minimum": 1.0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "WorkspaceRootsToml": {
       "type": "object"
     }
@@ -4930,6 +4965,9 @@
           "type": "boolean"
         },
         "deferred_executor": {
+          "type": "boolean"
+        },
+        "dynamic_workflows": {
           "type": "boolean"
         },
         "elevated_windows_sandbox": {
@@ -5611,6 +5649,14 @@
       ],
       "default": null,
       "description": "Windows-specific configuration."
+    },
+    "workflows": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/WorkflowsToml"
+        }
+      ],
+      "description": "Dynamic workflow execution limits."
     }
   },
   "title": "ConfigToml",

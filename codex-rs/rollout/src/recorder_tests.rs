@@ -18,7 +18,26 @@ use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::ThreadHistoryMode;
 use codex_protocol::protocol::TurnContextItem;
 use codex_protocol::protocol::UserMessageEvent;
+use codex_protocol::protocol::WorkflowStateItem;
 use pretty_assertions::assert_eq;
+use serde_json::json;
+
+#[test]
+fn recorder_round_trips_workflow_state_item() {
+    let item = RolloutItem::WorkflowState(
+        WorkflowStateItem::try_new(
+            /*schema_version*/ 1,
+            "wf_123",
+            json!({"state": "paused"}),
+        )
+        .unwrap(),
+    );
+
+    let encoded = serde_json::to_value(&item).expect("workflow state item should encode");
+    let decoded: RolloutItem =
+        serde_json::from_value(encoded.clone()).expect("workflow state item should decode");
+    assert_eq!(serde_json::to_value(decoded).unwrap(), encoded);
+}
 use std::fs;
 use std::fs::File;
 use std::io::Write;

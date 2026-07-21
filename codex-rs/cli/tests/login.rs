@@ -60,6 +60,28 @@ fn login_with_api_key_reads_stdin_and_writes_auth_json() -> Result<()> {
 }
 
 #[test]
+fn login_with_feishu_reads_api_key_and_writes_auth_json() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    write_file_auth_config(codex_home.path())?;
+
+    let mut cmd = codex_command(codex_home.path())?;
+    cmd.env("BROWSER", "true")
+        .args(["-c", "forced_login_method=\"api\"", "login", "--feishu"])
+        .write_stdin("sk-letsllm-test\n")
+        .assert()
+        .success()
+        .stderr(contains("Opening LetsLLM Feishu sign-in"))
+        .stderr(contains("Successfully logged in"));
+
+    let auth = read_auth_json(codex_home.path())?;
+    assert_eq!(auth["OPENAI_API_KEY"], "sk-letsllm-test");
+    assert!(auth.get("tokens").is_none());
+    assert!(auth.get("agent_identity").is_none());
+
+    Ok(())
+}
+
+#[test]
 fn login_with_access_token_rejects_invalid_jwt() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_file_auth_config(codex_home.path())?;

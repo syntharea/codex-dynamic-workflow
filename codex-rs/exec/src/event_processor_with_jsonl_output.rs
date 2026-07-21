@@ -54,6 +54,12 @@ use crate::exec_events::TurnFailedEvent;
 use crate::exec_events::TurnStartedEvent;
 use crate::exec_events::Usage;
 use crate::exec_events::WebSearchItem;
+use crate::exec_events::WorkflowCancelledEvent;
+use crate::exec_events::WorkflowCompletedEvent;
+use crate::exec_events::WorkflowFailedEvent;
+use crate::exec_events::WorkflowPausedEvent;
+use crate::exec_events::WorkflowStartedEvent;
+use crate::workflow_events;
 
 pub struct EventProcessorWithJsonOutput {
     last_message_path: Option<PathBuf>,
@@ -582,6 +588,55 @@ impl EventProcessorWithJsonOutput {
             ServerNotification::TurnStarted(_) => {
                 events.push(ThreadEvent::TurnStarted(TurnStartedEvent {}));
                 CodexStatus::Running
+            }
+            ServerNotification::WorkflowStarted(notification) => {
+                events.push(ThreadEvent::WorkflowStarted(WorkflowStartedEvent {
+                    thread_id: workflow_events::bounded_id(notification.thread_id),
+                    workflow: workflow_events::workflow_snapshot(notification.workflow),
+                }));
+                CodexStatus::Running
+            }
+            ServerNotification::WorkflowProgress(notification) => {
+                events.push(ThreadEvent::WorkflowProgress(
+                    workflow_events::workflow_progress(notification),
+                ));
+                CodexStatus::Running
+            }
+            ServerNotification::WorkflowPaused(notification) => {
+                events.push(ThreadEvent::WorkflowPaused(WorkflowPausedEvent {
+                    thread_id: workflow_events::bounded_id(notification.thread_id),
+                    workflow: workflow_events::workflow_snapshot(notification.workflow),
+                }));
+                CodexStatus::Running
+            }
+            ServerNotification::WorkflowCompleted(notification) => {
+                let workflow = workflow_events::workflow_snapshot(notification.workflow);
+                self.final_message = Some(workflow.summary.clone());
+                self.emit_final_message_on_shutdown = true;
+                events.push(ThreadEvent::WorkflowCompleted(WorkflowCompletedEvent {
+                    thread_id: workflow_events::bounded_id(notification.thread_id),
+                    workflow,
+                }));
+                CodexStatus::InitiateShutdown
+            }
+            ServerNotification::WorkflowFailed(notification) => {
+                self.final_message = None;
+                self.emit_final_message_on_shutdown = false;
+                events.push(ThreadEvent::WorkflowFailed(WorkflowFailedEvent {
+                    thread_id: workflow_events::bounded_id(notification.thread_id),
+                    workflow: workflow_events::workflow_snapshot(notification.workflow),
+                    error: workflow_events::bounded_text(notification.error),
+                }));
+                CodexStatus::InitiateShutdown
+            }
+            ServerNotification::WorkflowCancelled(notification) => {
+                self.final_message = None;
+                self.emit_final_message_on_shutdown = false;
+                events.push(ThreadEvent::WorkflowCancelled(WorkflowCancelledEvent {
+                    thread_id: workflow_events::bounded_id(notification.thread_id),
+                    workflow: workflow_events::workflow_snapshot(notification.workflow),
+                }));
+                CodexStatus::InitiateShutdown
             }
             _ => CodexStatus::Running,
         };

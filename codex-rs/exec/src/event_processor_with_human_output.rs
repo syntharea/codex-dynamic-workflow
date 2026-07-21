@@ -35,6 +35,7 @@ pub(crate) struct EventProcessorWithHumanOutput {
     final_message: Option<String>,
     final_message_rendered: bool,
     emit_final_message_on_shutdown: bool,
+    workflow_summary_to_stdout: bool,
     last_total_token_usage: Option<ThreadTokenUsage>,
 }
 
@@ -60,6 +61,7 @@ impl EventProcessorWithHumanOutput {
             final_message: None,
             final_message_rendered: false,
             emit_final_message_on_shutdown: false,
+            workflow_summary_to_stdout: false,
             last_total_token_usage: None,
         }
     }
@@ -361,6 +363,73 @@ impl EventProcessor for EventProcessorWithHumanOutput {
                 CodexStatus::Running
             }
             ServerNotification::TurnStarted(_) => CodexStatus::Running,
+            ServerNotification::WorkflowStarted(notification) => {
+                eprintln!(
+                    "{} {} ({})",
+                    "workflow started:".style(self.bold),
+                    notification.workflow.title,
+                    notification.workflow.workflow_id.style(self.dimmed)
+                );
+                CodexStatus::Running
+            }
+            ServerNotification::WorkflowProgress(notification) => {
+                eprintln!(
+                    "{} {:?} {}/{} complete{}",
+                    "workflow:".style(self.bold),
+                    notification.status,
+                    notification.completed_tasks,
+                    notification.completed_tasks
+                        + notification.running_tasks
+                        + notification.queued_tasks
+                        + notification.blocked_tasks
+                        + notification.failed_tasks,
+                    if notification.summary.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" - {}", notification.summary)
+                    }
+                );
+                CodexStatus::Running
+            }
+            ServerNotification::WorkflowPaused(notification) => {
+                eprintln!(
+                    "{} {}",
+                    "workflow paused:".style(self.yellow).style(self.bold),
+                    notification.workflow.summary
+                );
+                CodexStatus::Running
+            }
+            ServerNotification::WorkflowCompleted(notification) => {
+                self.final_message = Some(notification.workflow.summary);
+                self.final_message_rendered = false;
+                self.emit_final_message_on_shutdown = true;
+                self.workflow_summary_to_stdout = true;
+                CodexStatus::InitiateShutdown
+            }
+            ServerNotification::WorkflowFailed(notification) => {
+                self.final_message = None;
+                self.final_message_rendered = false;
+                self.emit_final_message_on_shutdown = false;
+                self.workflow_summary_to_stdout = false;
+                eprintln!(
+                    "{} {}",
+                    "workflow failed:".style(self.red).style(self.bold),
+                    notification.error
+                );
+                CodexStatus::InitiateShutdown
+            }
+            ServerNotification::WorkflowCancelled(notification) => {
+                self.final_message = None;
+                self.final_message_rendered = false;
+                self.emit_final_message_on_shutdown = false;
+                self.workflow_summary_to_stdout = false;
+                eprintln!(
+                    "{} {}",
+                    "workflow cancelled:".style(self.dimmed),
+                    notification.workflow.summary
+                );
+                CodexStatus::InitiateShutdown
+            }
             _ => CodexStatus::Running,
         }
     }
@@ -389,7 +458,9 @@ impl EventProcessor for EventProcessorWithHumanOutput {
         }
 
         #[allow(clippy::print_stdout)]
-        if should_print_final_message_to_stdout(
+        if self.workflow_summary_to_stdout {
+            println!("{}", self.final_message.as_deref().unwrap_or_default());
+        } else if should_print_final_message_to_stdout(
             self.emit_final_message_on_shutdown
                 .then_some(self.final_message.as_deref())
                 .flatten(),

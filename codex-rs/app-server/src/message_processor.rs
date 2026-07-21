@@ -40,6 +40,7 @@ use crate::request_processors::ThreadGoalRequestProcessor;
 use crate::request_processors::ThreadRequestProcessor;
 use crate::request_processors::TurnRequestProcessor;
 use crate::request_processors::WindowsSandboxRequestProcessor;
+use crate::request_processors::WorkflowRequestProcessor;
 use crate::request_serialization::QueuedInitializedRequest;
 use crate::request_serialization::RequestSerializationQueueKey;
 use crate::request_serialization::RequestSerializationQueues;
@@ -123,6 +124,7 @@ pub(crate) struct MessageProcessor {
     thread_goal_processor: ThreadGoalRequestProcessor,
     thread_processor: ThreadRequestProcessor,
     turn_processor: TurnRequestProcessor,
+    workflow_processor: WorkflowRequestProcessor,
     windows_sandbox_processor: WindowsSandboxRequestProcessor,
     request_serialization_queues: RequestSerializationQueues,
 }
@@ -443,6 +445,7 @@ impl MessageProcessor {
             thread_list_state_permit,
             Arc::clone(&skills_watcher),
         );
+        let workflow_processor = WorkflowRequestProcessor::new(Arc::clone(&thread_manager));
         if matches!(plugin_startup_tasks, crate::PluginStartupTasks::Start) {
             // Keep plugin startup warmups aligned at app-server startup.
             let on_effective_plugins_changed =
@@ -503,6 +506,7 @@ impl MessageProcessor {
             thread_goal_processor,
             thread_processor,
             turn_processor,
+            workflow_processor,
             windows_sandbox_processor,
             request_serialization_queues,
         }
@@ -1158,6 +1162,56 @@ impl MessageProcessor {
             ClientRequest::ThreadRead { params, .. } => {
                 self.thread_processor.thread_read(params).await
             }
+            ClientRequest::WorkflowStart { params, .. } => self
+                .workflow_processor
+                .workflow_start(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowRead { params, .. } => self
+                .workflow_processor
+                .workflow_read(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowList { params, .. } => self
+                .workflow_processor
+                .workflow_list(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowPause { params, .. } => self
+                .workflow_processor
+                .workflow_pause(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowResume { params, .. } => self
+                .workflow_processor
+                .workflow_resume(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowCancel { params, .. } => self
+                .workflow_processor
+                .workflow_cancel(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowRetry { params, .. } => self
+                .workflow_processor
+                .workflow_retry(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowSave { params, .. } => self
+                .workflow_processor
+                .workflow_save(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowRun { params, .. } => self
+                .workflow_processor
+                .workflow_run(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowDelete { params, .. } => self
+                .workflow_processor
+                .workflow_delete(params)
+                .await
+                .map(|response| Some(response.into())),
             ClientRequest::ThreadTurnsList { params, .. } => {
                 self.thread_processor.thread_turns_list(params).await
             }

@@ -9,6 +9,7 @@ mod event_processor;
 mod event_processor_with_human_output;
 pub(crate) mod event_processor_with_jsonl_output;
 pub(crate) mod exec_events;
+mod workflow_events;
 
 pub use cli::Cli;
 pub use cli::Command;
@@ -50,6 +51,11 @@ use codex_app_server_protocol::TurnInterruptResponse;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStartedNotification;
+use codex_app_server_protocol::WorkflowCancelParams;
+use codex_app_server_protocol::WorkflowCancelResponse;
+use codex_app_server_protocol::WorkflowPolicy;
+use codex_app_server_protocol::WorkflowStartParams;
+use codex_app_server_protocol::WorkflowStartResponse;
 use codex_arg0::Arg0DispatchPaths;
 use codex_cloud_config::cloud_config_bundle_loader_for_storage;
 use codex_config::CloudConfigBundleLoader;
@@ -101,6 +107,8 @@ use codex_utils_absolute_path::canonicalize_existing_preserving_symlinks;
 use codex_utils_cli::SharedCliOptions;
 use codex_utils_oss::ensure_oss_provider_ready;
 use codex_utils_oss::get_default_model_for_oss_provider;
+use codex_workflows::WorkflowTrigger;
+use codex_workflows::parse_workflow_trigger;
 use event_processor_with_human_output::EventProcessorWithHumanOutput;
 pub use event_processor_with_jsonl_output::CodexStatus;
 pub use event_processor_with_jsonl_output::CollectedThreadEvents;
@@ -138,6 +146,16 @@ pub use exec_events::TurnFailedEvent;
 pub use exec_events::TurnStartedEvent;
 pub use exec_events::Usage;
 pub use exec_events::WebSearchItem;
+pub use exec_events::WorkflowCancelledEvent;
+pub use exec_events::WorkflowCompletedEvent;
+pub use exec_events::WorkflowEventSnapshot;
+pub use exec_events::WorkflowEventStatus;
+pub use exec_events::WorkflowEventTask;
+pub use exec_events::WorkflowFailedEvent;
+pub use exec_events::WorkflowPausedEvent;
+pub use exec_events::WorkflowProgressEvent;
+pub use exec_events::WorkflowStartedEvent;
+pub use exec_events::WorkflowTaskEventStatus;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
@@ -171,6 +189,15 @@ enum InitialOperation {
     Review {
         review_request: ReviewRequest,
     },
+    Workflow {
+        objective: String,
+        policy: WorkflowPolicy,
+    },
+}
+
+enum OperationTarget {
+    Turn { turn_id: String },
+    Workflow { workflow_id: String },
 }
 
 enum StdinPromptBehavior {
@@ -218,6 +245,11 @@ struct ExecRunArgs {
     prompt: Option<String>,
     skip_git_repo_check: bool,
     stderr_with_ansi: bool,
+}
+
+struct ResolvedRootPrompt {
+    main_prompt: String,
+    stdin_context: Option<String>,
 }
 
 fn exec_root_span() -> tracing::Span {
@@ -761,24 +793,76 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
             )
         }
         (None, root_prompt, imgs) => {
-            let prompt_text = resolve_root_prompt(root_prompt);
-            let mut items: Vec<UserInput> = imgs
-                .into_iter()
-                .map(|path| UserInput::LocalImage { path, detail: None })
-                .collect();
-            items.push(UserInput::Text {
-                text: prompt_text.clone(),
-                // CLI input doesn't track UI element ranges, so none are available here.
-                text_elements: Vec::new(),
-            });
-            let output_schema = load_output_schema(output_schema_path);
-            (
-                InitialOperation::UserTurn {
-                    items,
-                    output_schema,
-                },
-                prompt_text,
-            )
+            let resolved_prompt = resolve_root_prompt(root_prompt);
+            let prompt_text = resolved_prompt
+                .stdin_context
+                .as_deref()
+                .map(|context| prompt_with_stdin_context(&resolved_prompt.main_prompt, context))
+                .unwrap_or_else(|| resolved_prompt.main_prompt.clone());
+            let workflow = match parse_workflow_trigger(&resolved_prompt.main_prompt) {
+                Some(WorkflowTrigger::Ultracode { objective }) => {
+                    if objective.is_empty() {
+                        return Err(anyhow::anyhow!(
+                            "ultracode requires an objective in non-interactive exec"
+                        ));
+                    }
+                    Some((objective, WorkflowPolicy::Ultracode))
+                }
+                Some(WorkflowTrigger::PendingUltracode) => {
+                    return Err(anyhow::anyhow!(
+                        "ultracode requires an objective in non-interactive exec"
+                    ));
+                }
+                Some(WorkflowTrigger::DeepResearch { topic }) => {
+                    Some((topic, WorkflowPolicy::DeepResearch))
+                }
+                Some(WorkflowTrigger::PendingDeepResearch) => {
+                    return Err(anyhow::anyhow!(
+                        "deep-research requires a topic in non-interactive exec"
+                    ));
+                }
+                None => None,
+            };
+
+            if let Some((objective, policy)) = workflow {
+                if !imgs.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "workflow execution cannot be combined with --image"
+                    ));
+                }
+                if output_schema_path.is_some() {
+                    return Err(anyhow::anyhow!(
+                        "workflow execution cannot be combined with --output-schema"
+                    ));
+                }
+                let objective = resolved_prompt
+                    .stdin_context
+                    .as_deref()
+                    .map(|context| prompt_with_stdin_context(&objective, context))
+                    .unwrap_or(objective);
+                (
+                    InitialOperation::Workflow { objective, policy },
+                    prompt_text,
+                )
+            } else {
+                let mut items: Vec<UserInput> = imgs
+                    .into_iter()
+                    .map(|path| UserInput::LocalImage { path, detail: None })
+                    .collect();
+                items.push(UserInput::Text {
+                    text: prompt_text.clone(),
+                    // CLI input doesn't track UI element ranges, so none are available here.
+                    text_elements: Vec::new(),
+                });
+                let output_schema = load_output_schema(output_schema_path);
+                (
+                    InitialOperation::UserTurn {
+                        items,
+                        output_schema,
+                    },
+                    prompt_text,
+                )
+            }
         }
     };
 
@@ -885,7 +969,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         }
     });
 
-    let task_id = match initial_operation {
+    let operation_target = match initial_operation {
         InitialOperation::UserTurn {
             items,
             output_schema,
@@ -923,7 +1007,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
             .map_err(anyhow::Error::msg)?;
             let task_id = response.turn.id;
             info!("Sent prompt with event ID: {task_id}");
-            task_id
+            OperationTarget::Turn { turn_id: task_id }
         }
         InitialOperation::Review { review_request } => {
             let response: ReviewStartResponse = send_request_with_response(
@@ -948,15 +1032,37 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
             ));
             let task_id = response.turn.id;
             info!("Sent review request with event ID: {task_id}");
-            task_id
+            OperationTarget::Turn { turn_id: task_id }
+        }
+        InitialOperation::Workflow { objective, policy } => {
+            let response: WorkflowStartResponse = send_request_with_response(
+                &client,
+                ClientRequest::WorkflowStart {
+                    request_id: request_ids.next(),
+                    params: WorkflowStartParams {
+                        thread_id: primary_thread_id_for_span.clone(),
+                        objective,
+                        policy: Some(policy),
+                    },
+                },
+                "workflow/start",
+            )
+            .await
+            .map_err(anyhow::Error::msg)?;
+            let workflow_id = response.workflow.workflow_id;
+            info!("Started workflow with ID: {workflow_id}");
+            OperationTarget::Workflow { workflow_id }
         }
     };
-    exec_span.record("turn.id", task_id.as_str());
+    if let OperationTarget::Turn { turn_id } = &operation_target {
+        exec_span.record("turn.id", turn_id.as_str());
+    }
 
     // Run the loop until the task is complete.
     // Track whether a fatal error was reported by the server so we can
     // exit with a non-zero status for automation-friendly signaling.
     let mut error_seen = false;
+    let mut workflow_terminal_seen = false;
     let mut interrupt_channel_open = true;
     let primary_thread_id_for_requests = primary_thread_id.to_string();
     loop {
@@ -966,20 +1072,41 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                     interrupt_channel_open = false;
                     continue;
                 }
-                if let Err(err) = send_request_with_response::<TurnInterruptResponse>(
-                    &client,
-                    ClientRequest::TurnInterrupt {
-                        request_id: request_ids.next(),
-                        params: TurnInterruptParams {
-                            thread_id: primary_thread_id_for_requests.clone(),
-                            turn_id: task_id.clone(),
-                        },
-                    },
-                    "turn/interrupt",
-                )
-                .await
-                {
-                    warn!("turn/interrupt failed: {err}");
+                match &operation_target {
+                    OperationTarget::Turn { turn_id } => {
+                        if let Err(err) = send_request_with_response::<TurnInterruptResponse>(
+                            &client,
+                            ClientRequest::TurnInterrupt {
+                                request_id: request_ids.next(),
+                                params: TurnInterruptParams {
+                                    thread_id: primary_thread_id_for_requests.clone(),
+                                    turn_id: turn_id.clone(),
+                                },
+                            },
+                            "turn/interrupt",
+                        )
+                        .await
+                        {
+                            warn!("turn/interrupt failed: {err}");
+                        }
+                    }
+                    OperationTarget::Workflow { workflow_id } => {
+                        if let Err(err) = send_request_with_response::<WorkflowCancelResponse>(
+                            &client,
+                            ClientRequest::WorkflowCancel {
+                                request_id: request_ids.next(),
+                                params: WorkflowCancelParams {
+                                    thread_id: primary_thread_id_for_requests.clone(),
+                                    workflow_id: workflow_id.clone(),
+                                },
+                            },
+                            "workflow/cancel",
+                        )
+                        .await
+                        {
+                            warn!("workflow/cancel failed: {err}");
+                        }
+                    }
                 }
                 continue;
             }
@@ -995,30 +1122,48 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                 handle_server_request(&client, request, &mut error_seen).await;
             }
             InProcessServerEvent::ServerNotification(mut notification) => {
-                if let ServerNotification::Error(payload) = &notification {
-                    if payload.thread_id == primary_thread_id_for_requests
-                        && payload.turn_id == task_id
-                        && !payload.will_retry
+                if let OperationTarget::Turn { turn_id } = &operation_target {
+                    if let ServerNotification::Error(payload) = &notification {
+                        if payload.thread_id == primary_thread_id_for_requests
+                            && payload.turn_id == *turn_id
+                            && !payload.will_retry
+                        {
+                            error_seen = true;
+                        }
+                    } else if let ServerNotification::TurnCompleted(payload) = &notification
+                        && payload.thread_id == primary_thread_id_for_requests
+                        && payload.turn.id == *turn_id
+                        && matches!(
+                            payload.turn.status,
+                            codex_app_server_protocol::TurnStatus::Failed
+                                | codex_app_server_protocol::TurnStatus::Interrupted
+                        )
                     {
                         error_seen = true;
                     }
-                } else if let ServerNotification::TurnCompleted(payload) = &notification
-                    && payload.thread_id == primary_thread_id_for_requests
-                    && payload.turn.id == task_id
-                    && matches!(
-                        payload.turn.status,
-                        codex_app_server_protocol::TurnStatus::Failed
-                            | codex_app_server_protocol::TurnStatus::Interrupted
-                    )
-                {
-                    error_seen = true;
                 }
 
                 if should_process_notification(
                     &notification,
                     &primary_thread_id_for_requests,
-                    &task_id,
+                    &operation_target,
                 ) {
+                    match (&operation_target, &notification) {
+                        (
+                            OperationTarget::Workflow { .. },
+                            ServerNotification::WorkflowCompleted(_),
+                        ) => workflow_terminal_seen = true,
+                        (
+                            OperationTarget::Workflow { .. },
+                            ServerNotification::WorkflowFailed(_)
+                            | ServerNotification::WorkflowCancelled(_),
+                        ) => {
+                            workflow_terminal_seen = true;
+                            error_seen = true;
+                        }
+                        (OperationTarget::Turn { .. }, _)
+                        | (OperationTarget::Workflow { .. }, _) => {}
+                    }
                     maybe_backfill_turn_completed_items(
                         config.ephemeral,
                         &client,
@@ -1056,7 +1201,9 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         warn!("in-process app-server shutdown failed: {err}");
     }
     event_processor.print_final_output();
-    if error_seen {
+    if error_seen
+        || matches!(operation_target, OperationTarget::Workflow { .. }) && !workflow_terminal_seen
+    {
         std::process::exit(1);
     }
 
@@ -1287,7 +1434,7 @@ fn lagged_event_warning_message(skipped: usize) -> String {
 fn should_process_notification(
     notification: &ServerNotification,
     thread_id: &str,
-    turn_id: &str,
+    target: &OperationTarget,
 ) -> bool {
     match notification {
         ServerNotification::ConfigWarning(_) | ServerNotification::DeprecationNotice(_) => true,
@@ -1297,48 +1444,120 @@ fn should_process_notification(
             .as_deref()
             .is_none_or(|candidate| candidate == thread_id),
         ServerNotification::Error(notification) => {
-            notification.thread_id == thread_id && notification.turn_id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn_id == *turn_id
         }
         ServerNotification::HookCompleted(notification) => {
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
             notification.thread_id == thread_id
                 && notification
                     .turn_id
                     .as_deref()
-                    .is_none_or(|candidate| candidate == turn_id)
+                    .is_none_or(|candidate| candidate == turn_id.as_str())
         }
         ServerNotification::HookStarted(notification) => {
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
             notification.thread_id == thread_id
                 && notification
                     .turn_id
                     .as_deref()
-                    .is_none_or(|candidate| candidate == turn_id)
+                    .is_none_or(|candidate| candidate == turn_id.as_str())
         }
         ServerNotification::ItemCompleted(notification) => {
-            notification.thread_id == thread_id && notification.turn_id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn_id == *turn_id
         }
         ServerNotification::ItemStarted(notification) => {
-            notification.thread_id == thread_id && notification.turn_id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn_id == *turn_id
         }
         ServerNotification::ModelRerouted(notification) => {
-            notification.thread_id == thread_id && notification.turn_id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn_id == *turn_id
         }
         ServerNotification::ModelVerification(notification) => {
-            notification.thread_id == thread_id && notification.turn_id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn_id == *turn_id
         }
         ServerNotification::ThreadTokenUsageUpdated(notification) => {
-            notification.thread_id == thread_id && notification.turn_id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn_id == *turn_id
         }
         ServerNotification::TurnCompleted(notification) => {
-            notification.thread_id == thread_id && notification.turn.id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn.id == *turn_id
         }
         ServerNotification::TurnDiffUpdated(notification) => {
-            notification.thread_id == thread_id && notification.turn_id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn_id == *turn_id
         }
         ServerNotification::TurnPlanUpdated(notification) => {
-            notification.thread_id == thread_id && notification.turn_id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn_id == *turn_id
         }
         ServerNotification::TurnStarted(notification) => {
-            notification.thread_id == thread_id && notification.turn.id == turn_id
+            let OperationTarget::Turn { turn_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.turn.id == *turn_id
+        }
+        ServerNotification::WorkflowStarted(notification) => {
+            let OperationTarget::Workflow { workflow_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.workflow.workflow_id == *workflow_id
+        }
+        ServerNotification::WorkflowProgress(notification) => {
+            let OperationTarget::Workflow { workflow_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.workflow_id == *workflow_id
+        }
+        ServerNotification::WorkflowPaused(notification) => {
+            let OperationTarget::Workflow { workflow_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.workflow.workflow_id == *workflow_id
+        }
+        ServerNotification::WorkflowCompleted(notification) => {
+            let OperationTarget::Workflow { workflow_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.workflow.workflow_id == *workflow_id
+        }
+        ServerNotification::WorkflowFailed(notification) => {
+            let OperationTarget::Workflow { workflow_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.workflow.workflow_id == *workflow_id
+        }
+        ServerNotification::WorkflowCancelled(notification) => {
+            let OperationTarget::Workflow { workflow_id } = target else {
+                return false;
+            };
+            notification.thread_id == thread_id && notification.workflow.workflow_id == *workflow_id
         }
         _ => false,
     }
@@ -1967,16 +2186,16 @@ fn resolve_prompt(prompt_arg: Option<String>) -> String {
     }
 }
 
-fn resolve_root_prompt(prompt_arg: Option<String>) -> String {
+fn resolve_root_prompt(prompt_arg: Option<String>) -> ResolvedRootPrompt {
     match prompt_arg {
-        Some(prompt) if prompt != "-" => {
-            if let Some(stdin_text) = read_prompt_from_stdin(StdinPromptBehavior::OptionalAppend) {
-                prompt_with_stdin_context(&prompt, &stdin_text)
-            } else {
-                prompt
-            }
-        }
-        maybe_dash => resolve_prompt(maybe_dash),
+        Some(prompt) if prompt != "-" => ResolvedRootPrompt {
+            main_prompt: prompt,
+            stdin_context: read_prompt_from_stdin(StdinPromptBehavior::OptionalAppend),
+        },
+        maybe_dash => ResolvedRootPrompt {
+            main_prompt: resolve_prompt(maybe_dash),
+            stdin_context: None,
+        },
     }
 }
 

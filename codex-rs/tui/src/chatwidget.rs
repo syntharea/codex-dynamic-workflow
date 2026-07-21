@@ -350,6 +350,9 @@ use self::input_queue::InputQueueState;
 mod input_flow;
 mod input_restore;
 mod input_submission;
+mod workflow_manager;
+mod workflows;
+use self::workflows::WorkflowUiState;
 mod interrupts;
 use self::interrupts::InterruptManager;
 mod keymap_picker;
@@ -478,7 +481,7 @@ const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const ASK_FOR_APPROVAL_LABEL: &str = "Ask for approval";
 const APPROVE_FOR_ME_LABEL: &str = "Approve for me";
 const AUTO_REVIEW_DESCRIPTION: &str = "Only ask for actions detected as potentially unsafe.";
-const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+const DEFAULT_OPENAI_BASE_URL: &str = "https://api.letsllm.com/v1";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning", "current-dir"];
 
 /// Common initialization parameters shared by all `ChatWidget` constructors.
@@ -673,6 +676,7 @@ pub(crate) struct ChatWidget {
     // order.
     suppress_initial_user_message_submit: bool,
     input_queue: InputQueueState,
+    workflow_ui: WorkflowUiState,
     safety_buffering_prompt: Option<UserMessage>,
     /// Main chat-surface bindings resolved from `tui.keymap.chat`.
     chat_keymap: ChatKeymap,

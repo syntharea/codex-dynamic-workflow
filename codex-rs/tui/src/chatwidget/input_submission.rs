@@ -118,6 +118,9 @@ impl ChatWidget {
         {
             return (false, None);
         }
+        if self.handle_workflow_submission(&user_message, &history_record) {
+            return (true, None);
+        }
         if (!user_message.local_images.is_empty() || !user_message.remote_image_urls.is_empty())
             && !self.current_model_supports_images()
         {

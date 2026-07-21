@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
+
 use super::*;
 use crate::context::world_state::WorldStateSnapshot;
 use crate::context_manager::is_user_turn_boundary;
 use codex_protocol::protocol::SessionContextWindow;
+use codex_protocol::protocol::WorkflowStateItem;
 use uuid::Uuid;
 
 // Return value of `Session::reconstruct_history_from_rollout`, bundling the rebuilt history with
@@ -9,6 +12,8 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub(super) struct RolloutReconstruction {
     pub(super) history: Vec<ResponseItem>,
+    /// Durable workflow recovery snapshots, kept separate from model-visible history.
+    pub(super) workflow_snapshots: BTreeMap<String, WorkflowStateItem>,
     pub(super) previous_turn_settings: Option<PreviousTurnSettings>,
     pub(super) reference_context_item: Option<TurnContextItem>,
     pub(super) world_state_baseline: Option<WorldStateSnapshot>,
@@ -137,6 +142,17 @@ impl Session {
             })
         };
         let mut base_replacement_history: Option<&[ResponseItem]> = None;
+        // WorkflowState is the durable recovery source. Lifecycle events remain notifications;
+        // neither form is projected into conversation history or TurnItem context.
+        let workflow_snapshots = rollout_items
+            .iter()
+            .filter_map(|item| match item {
+                RolloutItem::WorkflowState(snapshot) => {
+                    Some((snapshot.workflow_id().to_string(), snapshot.clone()))
+                }
+                _ => None,
+            })
+            .collect();
         let mut previous_turn_settings = None;
         let mut reference_context_item = TurnReferenceContextItem::NeverSet;
         let mut world_state_replay = Vec::new();
@@ -280,7 +296,8 @@ impl Session {
                 }
                 RolloutItem::EventMsg(_)
                 | RolloutItem::SessionMeta(_)
-                | RolloutItem::InterAgentCommunicationMetadata { .. } => {}
+                | RolloutItem::InterAgentCommunicationMetadata { .. }
+                | RolloutItem::WorkflowState(_) => {}
             }
 
             if base_replacement_history.is_some()
@@ -368,7 +385,8 @@ impl Session {
                 RolloutItem::EventMsg(_)
                 | RolloutItem::TurnContext(_)
                 | RolloutItem::WorldState(_)
-                | RolloutItem::SessionMeta(_) => {}
+                | RolloutItem::SessionMeta(_)
+                | RolloutItem::WorkflowState(_) => {}
             }
         }
 
@@ -415,7 +433,8 @@ impl Session {
                 | RolloutItem::InterAgentCommunication(_)
                 | RolloutItem::InterAgentCommunicationMetadata { .. }
                 | RolloutItem::TurnContext(_)
-                | RolloutItem::EventMsg(_) => {
+                | RolloutItem::EventMsg(_)
+                | RolloutItem::WorkflowState(_) => {
                     unreachable!("only world-state replay items are collected")
                 }
             }
@@ -429,6 +448,7 @@ impl Session {
         });
         RolloutReconstruction {
             history: history.into_raw_items(),
+            workflow_snapshots,
             previous_turn_settings,
             reference_context_item,
             world_state_baseline,

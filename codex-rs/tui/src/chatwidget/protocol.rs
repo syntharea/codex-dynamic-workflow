@@ -57,6 +57,28 @@ impl ChatWidget {
             ServerNotification::ThreadSettingsUpdated(notification) => {
                 self.on_thread_settings_updated(notification);
             }
+            ServerNotification::WorkflowStarted(notification) => {
+                self.on_workflow_loaded(notification.workflow);
+            }
+            ServerNotification::WorkflowProgress(notification) => {
+                self.on_workflow_progress(notification);
+            }
+            ServerNotification::WorkflowPaused(notification) => {
+                self.on_workflow_loaded(notification.workflow);
+            }
+            ServerNotification::WorkflowCompleted(notification) => {
+                self.on_workflow_loaded(notification.workflow);
+            }
+            ServerNotification::WorkflowCancelled(notification) => {
+                self.on_workflow_loaded(notification.workflow);
+            }
+            ServerNotification::WorkflowFailed(notification) => {
+                let error = notification.error;
+                self.on_workflow_loaded(notification.workflow);
+                if !from_replay {
+                    self.add_error_message(format!("Workflow failed: {error}"));
+                }
+            }
             ServerNotification::TurnStarted(notification) => {
                 self.turn_lifecycle.last_turn_id = Some(notification.turn.id);
                 self.last_non_retry_error = None;

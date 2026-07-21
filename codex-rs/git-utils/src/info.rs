@@ -20,18 +20,16 @@ use ts_rs::TS;
 
 use crate::GitSha;
 
-/// Return `true` if the project folder specified by the `Config` is inside a
-/// Git repository.
+/// Return the root of the current Git checkout containing `base_dir`.
 ///
 /// The check walks up the directory hierarchy looking for a `.git` file or
 /// directory (note `.git` can be a file that contains a `gitdir` entry). This
 /// approach does **not** require the `git` binary or the `git2` crate and is
 /// therefore fairly lightweight.
 ///
-/// Note that this does **not** detect *work‑trees* created with
-/// `git worktree add` where the checkout lives outside the main repository
-/// directory. If you need Codex to work from such a checkout simply pass the
-/// `--allow-no-git-exec` CLI flag that disables the repo requirement.
+/// For a linked worktree, this returns the linked checkout root rather than the
+/// main repository root. Use [`resolve_root_git_project_for_trust`] when the
+/// main root used for inherited trust decisions is required.
 pub fn get_git_repo_root(base_dir: &Path) -> Option<PathBuf> {
     let base = if base_dir.is_dir() {
         base_dir
@@ -41,10 +39,12 @@ pub fn get_git_repo_root(base_dir: &Path) -> Option<PathBuf> {
     find_ancestor_git_entry(base).map(|(repo_root, _)| repo_root)
 }
 
-/// Return the repository root for `cwd` using the provided filesystem.
+/// Return the root of the current Git checkout for `cwd` using the provided
+/// filesystem.
 ///
 /// This mirrors [`get_git_repo_root`] for local paths, but works when `cwd`
-/// only exists inside a selected remote environment.
+/// only exists inside a selected remote environment. For a linked worktree,
+/// this returns the linked checkout root rather than the main repository root.
 pub async fn get_git_repo_root_with_fs(
     fs: &dyn ExecutorFileSystem,
     cwd: &AbsolutePathBuf,
@@ -803,16 +803,18 @@ async fn diff_against_sha(cwd: &Path, sha: &GitSha) -> Option<String> {
     Some(diff)
 }
 
-/// Resolve the path that should be used for trust checks. Similar to
-/// `[get_git_repo_root]`, but resolves to the root of the main
-/// repository. Handles worktrees via filesystem inspection without invoking
-/// the `git` executable.
+/// Resolve the main repository root that should be used for inherited trust
+/// checks.
+///
+/// Unlike [`get_git_repo_root_with_fs`], this follows linked-worktree metadata
+/// from the current checkout back to the main repository without invoking the
+/// `git` executable.
 pub async fn resolve_root_git_project_for_trust(
     fs: &dyn ExecutorFileSystem,
     cwd: &AbsolutePathBuf,
 ) -> Option<AbsolutePathBuf> {
-    let repo_root = get_git_repo_root_with_fs(fs, cwd).await?;
-    let dot_git = repo_root.join(".git");
+    let checkout_root = get_git_repo_root_with_fs(fs, cwd).await?;
+    let dot_git = checkout_root.join(".git");
     let dot_git_uri = PathUri::from_abs_path(&dot_git);
     if fs
         .get_metadata(&dot_git_uri, /*sandbox*/ None)
@@ -820,7 +822,7 @@ pub async fn resolve_root_git_project_for_trust(
         .ok()?
         .is_directory
     {
-        return Some(repo_root);
+        return Some(checkout_root);
     }
 
     let git_dir_s = fs
@@ -832,7 +834,8 @@ pub async fn resolve_root_git_project_for_trust(
         return None;
     }
 
-    let git_dir_path = AbsolutePathBuf::resolve_path_against_base(git_dir_rel, repo_root.as_path());
+    let git_dir_path =
+        AbsolutePathBuf::resolve_path_against_base(git_dir_rel, checkout_root.as_path());
     let worktrees_dir = git_dir_path.parent()?;
     if worktrees_dir.as_path().file_name() != Some(OsStr::new("worktrees")) {
         return None;

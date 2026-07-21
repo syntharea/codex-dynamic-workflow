@@ -11,6 +11,8 @@ use crate::thread_state::TurnSummary;
 use crate::thread_state::resolve_server_request_on_thread_listener;
 use crate::thread_status::ThreadWatchActiveGuard;
 use crate::thread_status::ThreadWatchManager;
+use crate::workflow_mapping::workflow_from_core;
+use crate::workflow_mapping::workflow_status_from_core;
 use codex_app_server_protocol::AccountRateLimitsUpdatedNotification;
 use codex_app_server_protocol::AdditionalPermissionProfile as V2AdditionalPermissionProfile;
 use codex_app_server_protocol::CodexErrorInfo as V2CodexErrorInfo;
@@ -83,6 +85,12 @@ use codex_app_server_protocol::TurnPlanUpdatedNotification;
 use codex_app_server_protocol::TurnStartedNotification;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::WarningNotification;
+use codex_app_server_protocol::WorkflowCancelledNotification;
+use codex_app_server_protocol::WorkflowCompletedNotification;
+use codex_app_server_protocol::WorkflowFailedNotification;
+use codex_app_server_protocol::WorkflowPausedNotification;
+use codex_app_server_protocol::WorkflowProgressNotification;
+use codex_app_server_protocol::WorkflowStartedNotification;
 use codex_app_server_protocol::build_item_from_guardian_event;
 use codex_app_server_protocol::guardian_auto_approval_review_notification;
 use codex_app_server_protocol::item_event_to_server_notification;
@@ -892,6 +900,74 @@ pub(crate) async fn apply_bespoke_event_handling(
             };
             outgoing
                 .send_server_notification(ServerNotification::DeprecationNotice(notification))
+                .await;
+        }
+        EventMsg::WorkflowStarted(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::WorkflowStarted(
+                    WorkflowStartedNotification {
+                        thread_id: conversation_id.to_string(),
+                        workflow: workflow_from_core(event.summary()),
+                    },
+                ))
+                .await;
+        }
+        EventMsg::WorkflowProgress(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::WorkflowProgress(
+                    WorkflowProgressNotification {
+                        thread_id: conversation_id.to_string(),
+                        workflow_id: event.workflow_id().as_str().to_string(),
+                        status: workflow_status_from_core(event.state()),
+                        completed_tasks: event.completed_tasks(),
+                        running_tasks: event.running_tasks(),
+                        queued_tasks: event.queued_tasks(),
+                        blocked_tasks: event.blocked_tasks(),
+                        failed_tasks: event.failed_tasks(),
+                        summary: event.summary().as_str().to_string(),
+                    },
+                ))
+                .await;
+        }
+        EventMsg::WorkflowPaused(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::WorkflowPaused(
+                    WorkflowPausedNotification {
+                        thread_id: conversation_id.to_string(),
+                        workflow: workflow_from_core(event.summary()),
+                    },
+                ))
+                .await;
+        }
+        EventMsg::WorkflowCompleted(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::WorkflowCompleted(
+                    WorkflowCompletedNotification {
+                        thread_id: conversation_id.to_string(),
+                        workflow: workflow_from_core(event.summary()),
+                    },
+                ))
+                .await;
+        }
+        EventMsg::WorkflowFailed(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::WorkflowFailed(
+                    WorkflowFailedNotification {
+                        thread_id: conversation_id.to_string(),
+                        workflow: workflow_from_core(event.summary()),
+                        error: event.error().as_str().to_string(),
+                    },
+                ))
+                .await;
+        }
+        EventMsg::WorkflowCancelled(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::WorkflowCancelled(
+                    WorkflowCancelledNotification {
+                        thread_id: conversation_id.to_string(),
+                        workflow: workflow_from_core(event.summary()),
+                    },
+                ))
                 .await;
         }
         EventMsg::TokenCount(token_count_event) => {
@@ -3209,6 +3285,158 @@ mod tests {
                 additional_details: None,
             })
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn workflow_lifecycle_emits_v2_notifications() -> Result<()> {
+        let codex_home = TempDir::new()?;
+        let config = load_default_config_for_test(&codex_home).await;
+        let thread_manager = Arc::new(
+            codex_core::test_support::thread_manager_with_models_provider_and_home(
+                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+                config.model_provider.clone(),
+                config.codex_home.to_path_buf(),
+                Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+            ),
+        );
+        let codex_core::NewThread {
+            thread_id: conversation_id,
+            thread: conversation,
+            ..
+        } = thread_manager.start_thread(config).await?;
+        let workflow_id = codex_protocol::workflow::WorkflowId::new("workflow-1")?;
+        let summary = |status| {
+            codex_protocol::workflow::WorkflowSummary::try_new(
+                workflow_id.clone(),
+                codex_protocol::workflow::WorkflowTitle::new("Release")?,
+                status,
+                Vec::new(),
+                /*completed_tasks*/ 0,
+                /*running_tasks*/ 0,
+                /*queued_tasks*/ 0,
+                /*blocked_tasks*/ 0,
+                /*failed_tasks*/ 0,
+                codex_protocol::workflow::WorkflowText::new("Planning")?,
+            )
+        };
+        let events = vec![
+            EventMsg::WorkflowStarted(codex_protocol::workflow::WorkflowStartedEvent::try_new(
+                workflow_id.clone(),
+                summary(codex_protocol::workflow::WorkflowStatus::Running)?,
+            )?),
+            EventMsg::WorkflowProgress(codex_protocol::workflow::WorkflowProgressEvent::new(
+                workflow_id.clone(),
+                codex_protocol::workflow::WorkflowStatus::Running,
+                /*completed_tasks*/ 1,
+                /*running_tasks*/ 2,
+                /*queued_tasks*/ 3,
+                /*blocked_tasks*/ 4,
+                /*failed_tasks*/ 5,
+                codex_protocol::workflow::WorkflowText::new("Running")?,
+            )),
+            EventMsg::WorkflowPaused(codex_protocol::workflow::WorkflowPausedEvent::try_new(
+                workflow_id.clone(),
+                summary(codex_protocol::workflow::WorkflowStatus::Paused)?,
+            )?),
+            EventMsg::WorkflowCompleted(codex_protocol::workflow::WorkflowCompletedEvent::try_new(
+                workflow_id.clone(),
+                summary(codex_protocol::workflow::WorkflowStatus::Completed)?,
+            )?),
+            EventMsg::WorkflowFailed(codex_protocol::workflow::WorkflowFailedEvent::try_new(
+                workflow_id.clone(),
+                summary(codex_protocol::workflow::WorkflowStatus::Failed)?,
+                codex_protocol::workflow::WorkflowText::new("planner failed")?,
+            )?),
+            EventMsg::WorkflowCancelled(codex_protocol::workflow::WorkflowCancelledEvent::try_new(
+                workflow_id.clone(),
+                summary(codex_protocol::workflow::WorkflowStatus::Cancelled)?,
+            )?),
+        ];
+        let (tx, mut rx) = mpsc::channel(CHANNEL_CAPACITY);
+        let outgoing = Arc::new(OutgoingMessageSender::new(
+            tx,
+            codex_analytics::AnalyticsEventsClient::disabled(),
+        ));
+        let outgoing = ThreadScopedOutgoingMessageSender::new(
+            outgoing,
+            vec![ConnectionId(1)],
+            conversation_id,
+        );
+
+        let thread_state = new_thread_state();
+        let thread_watch_manager = ThreadWatchManager::new();
+        for event in events {
+            apply_bespoke_event_handling(
+                Event {
+                    id: "workflow-submission".to_string(),
+                    msg: event,
+                },
+                conversation_id,
+                Arc::clone(&conversation),
+                Arc::clone(&thread_manager),
+                outgoing.clone(),
+                Arc::clone(&thread_state),
+                thread_watch_manager.clone(),
+                Arc::new(tokio::sync::Semaphore::new(/*permits*/ 1)),
+                "test-provider".to_string(),
+            )
+            .await;
+        }
+
+        let mut notifications = Vec::new();
+        for _ in 0..6 {
+            notifications.push(
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(1),
+                    recv_broadcast_notification(&mut rx),
+                )
+                .await??,
+            );
+        }
+        assert!(matches!(
+            &notifications[0],
+            ServerNotification::WorkflowStarted(notification)
+                if notification.thread_id == conversation_id.to_string()
+                    && notification.workflow.workflow_id == "workflow-1"
+                    && notification.workflow.status
+                        == codex_app_server_protocol::WorkflowStatus::Running
+        ));
+        assert!(matches!(
+            &notifications[1],
+            ServerNotification::WorkflowProgress(notification)
+                if notification.completed_tasks == 1
+                    && notification.running_tasks == 2
+                    && notification.queued_tasks == 3
+                    && notification.blocked_tasks == 4
+                    && notification.failed_tasks == 5
+                    && notification.summary == "Running"
+        ));
+        assert!(matches!(
+            &notifications[2],
+            ServerNotification::WorkflowPaused(notification)
+                if notification.workflow.status
+                    == codex_app_server_protocol::WorkflowStatus::Paused
+        ));
+        assert!(matches!(
+            &notifications[3],
+            ServerNotification::WorkflowCompleted(notification)
+                if notification.workflow.status
+                    == codex_app_server_protocol::WorkflowStatus::Completed
+        ));
+        assert!(matches!(
+            &notifications[4],
+            ServerNotification::WorkflowFailed(notification)
+                if notification.workflow.status
+                    == codex_app_server_protocol::WorkflowStatus::Failed
+                    && notification.error == "planner failed"
+        ));
+        assert!(matches!(
+            &notifications[5],
+            ServerNotification::WorkflowCancelled(notification)
+                if notification.workflow.status
+                    == codex_app_server_protocol::WorkflowStatus::Cancelled
+        ));
         Ok(())
     }
 

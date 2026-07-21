@@ -220,6 +220,7 @@ pub(crate) mod time_reminder;
 mod token_budget;
 pub(crate) mod turn;
 pub(crate) mod turn_context;
+mod workflow_recovery;
 mod world_state;
 use self::code_mode_warning::unsupported_code_mode_warning;
 use self::config_lock::export_config_lock_if_configured;
@@ -1254,7 +1255,10 @@ impl Session {
         state.clear_connector_selection();
     }
 
-    async fn record_initial_history(&self, conversation_history: InitialHistory) {
+    async fn record_initial_history(
+        &self,
+        conversation_history: InitialHistory,
+    ) -> anyhow::Result<()> {
         let (is_subagent, is_paginated_subagent) = {
             let state = self.state.lock().await;
             let session_configuration = &state.session_configuration;
@@ -1285,8 +1289,12 @@ impl Session {
                 let turn_context = self.new_default_turn().await;
                 let rollout_items = resumed_history.history;
                 let previous_turn_settings = self
-                    .apply_rollout_reconstruction(&turn_context, &rollout_items)
-                    .await;
+                    .apply_rollout_reconstruction(
+                        &turn_context,
+                        &rollout_items,
+                        /*persist_workflows*/ true,
+                    )
+                    .await?;
 
                 // If resuming, warn when the last recorded model differs from the current one.
                 let curr: &str = turn_context.model_info.slug.as_str();
@@ -1318,16 +1326,21 @@ impl Session {
                 // Defer seeding the session's initial context until the first turn starts so
                 // turn/start overrides can be merged before we write to the rollout.
                 if !is_subagent {
-                    let _ = self.flush_rollout().await;
+                    self.flush_rollout().await?;
                 }
             }
             InitialHistory::Forked(mut rollout_items) => {
+                rollout_items.retain(|item| !matches!(item, RolloutItem::WorkflowState(_)));
                 let turn_context = self.new_default_turn().await;
                 if turn_context.item_ids_enabled() {
                     Self::assign_missing_rollout_response_item_ids(&mut rollout_items);
                 }
-                self.apply_rollout_reconstruction(&turn_context, &rollout_items)
-                    .await;
+                self.apply_rollout_reconstruction(
+                    &turn_context,
+                    &rollout_items,
+                    /*persist_workflows*/ false,
+                )
+                .await?;
 
                 // Seed usage info from the recorded rollout so UIs can show token counts
                 // immediately on resume/fork.
@@ -1338,19 +1351,23 @@ impl Session {
 
                 // Paginated subagents persist inherited model context while creating the live
                 // thread so the copied prefix is not observed as child-owned metadata.
-                if !rollout_items.is_empty() && !is_paginated_subagent {
-                    self.persist_rollout_items(&rollout_items).await;
+                if !rollout_items.is_empty()
+                    && !is_paginated_subagent
+                    && let Some(live_thread) = self.live_thread()
+                {
+                    live_thread.append_items(&rollout_items).await?;
                 }
 
                 // Forked threads should remain file-backed immediately after startup.
-                self.ensure_rollout_materialized().await;
+                self.try_ensure_rollout_materialized().await?;
 
                 // Flush after seeding history and any persisted rollout copy.
                 if !is_subagent {
-                    let _ = self.flush_rollout().await;
+                    self.flush_rollout().await?;
                 }
             }
         }
+        Ok(())
     }
 
     #[instrument(
@@ -1365,9 +1382,11 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         rollout_items: &[RolloutItem],
-    ) -> Option<PreviousTurnSettings> {
+        persist_workflows: bool,
+    ) -> anyhow::Result<Option<PreviousTurnSettings>> {
         let rollout_reconstruction::RolloutReconstruction {
             mut history,
+            workflow_snapshots,
             previous_turn_settings,
             reference_context_item,
             world_state_baseline,
@@ -1378,6 +1397,8 @@ impl Session {
         } = self
             .reconstruct_history_from_rollout(turn_context, rollout_items)
             .await;
+        self.recover_workflows(workflow_snapshots, persist_workflows)
+            .await?;
         // Keep the recorded rollout unchanged. Prepare its reconstructed history before
         // installing it, so legacy media is processed once for this resume or fork and
         // will be processed again if the rollout is reconstructed in a future session.
@@ -1416,7 +1437,7 @@ impl Session {
             self.set_auto_compact_window_estimated_prefill_for_scope(turn_context, prefix_tokens)
                 .await;
         }
-        previous_turn_settings
+        Ok(previous_turn_settings)
     }
 
     async fn set_auto_compact_window_estimated_prefill_for_scope(

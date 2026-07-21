@@ -168,6 +168,7 @@ fn update_turn_measurements(
                     &mut update,
                 );
             }
+            RolloutItem::WorkflowState(_) => {}
             _ => match state.active.as_mut() {
                 Some(totals) => add_item_to_turn(totals, item_measurement),
                 None => add_item_to_turn(&mut state.pending, item_measurement),
@@ -235,6 +236,7 @@ fn rollout_item_type(item: &RolloutItem) -> String {
         RolloutItem::Compacted(_) => "compacted".to_string(),
         RolloutItem::TurnContext(_) => "turn_context".to_string(),
         RolloutItem::WorldState(_) => "world_state".to_string(),
+        RolloutItem::WorkflowState(_) => "workflow_state".to_string(),
         RolloutItem::EventMsg(EventMsg::ItemCompleted(event)) => {
             format!("event.item_completed.{}", turn_item_type(&event.item))
         }

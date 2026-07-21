@@ -403,6 +403,7 @@ impl ThreadHistoryBuilder {
             | RolloutItem::InterAgentCommunicationMetadata { .. }
             | RolloutItem::TurnContext(_)
             | RolloutItem::WorldState(_)
+            | RolloutItem::WorkflowState(_)
             | RolloutItem::SessionMeta(_) => {}
         }
     }
@@ -1636,6 +1637,7 @@ mod tests {
     use codex_protocol::protocol::UserMessageEvent;
     use codex_protocol::protocol::WebSearchBeginEvent;
     use codex_protocol::protocol::WebSearchEndEvent;
+    use codex_protocol::workflow::WorkflowStateItem;
     use codex_utils_absolute_path::test_support::PathBufExt;
     use codex_utils_absolute_path::test_support::test_path_buf;
     use pretty_assertions::assert_eq;
@@ -4432,6 +4434,18 @@ mod tests {
                 }],
                 removed_turn_ids: Vec::new(),
             }
+        );
+    }
+
+    #[test]
+    fn workflow_state_does_not_change_thread_history() {
+        let mut builder = ThreadHistoryBuilder::new();
+        let state = WorkflowStateItem::new("workflow-1", serde_json::json!({"status": "running"}))
+            .expect("valid workflow state");
+
+        assert_eq!(
+            builder.handle_rollout_item_with_changes(&RolloutItem::WorkflowState(state)),
+            ThreadHistoryChangeSet::default()
         );
     }
 

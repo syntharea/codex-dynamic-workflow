@@ -29,8 +29,10 @@ use codex_app_server_protocol::PluginMarketplaceEntry;
 use codex_app_server_protocol::PluginReadParams;
 use codex_app_server_protocol::PluginReadResponse;
 use codex_app_server_protocol::PluginUninstallResponse;
+use codex_app_server_protocol::SavedWorkflow;
 use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::ThreadGoalStatus;
+use codex_app_server_protocol::WorkflowPolicy;
 use codex_connectors::AppInfo;
 use codex_file_search::FileMatch;
 use codex_message_history::HistoryBatchCursor;
@@ -174,9 +176,47 @@ pub(crate) enum KeymapEditIntent {
     ReplaceOne { old_key: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WorkflowManagerAction {
+    Read { workflow_id: String },
+    Pause { workflow_id: String },
+    Resume { workflow_id: String },
+    Cancel { workflow_id: String },
+    Retry { workflow_id: String },
+    Save { workflow_id: String, name: String },
+    Run { name: String },
+    Delete { name: String },
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub(crate) enum AppEvent {
+    /// Start a dynamic workflow for the active thread instead of a regular turn.
+    StartWorkflow {
+        thread_id: ThreadId,
+        objective: String,
+        policy: WorkflowPolicy,
+    },
+
+    /// Arm a one-shot workflow policy for the next ordinary prompt.
+    ArmWorkflow {
+        policy: WorkflowPolicy,
+    },
+
+    /// Load and open the workflow manager for the active thread.
+    OpenWorkflowManager,
+
+    /// Open local details for one saved workflow entry.
+    OpenSavedWorkflowDetail {
+        workflow: SavedWorkflow,
+    },
+
+    /// Execute a workflow manager operation through app-server v2.
+    WorkflowManagerAction {
+        thread_id: ThreadId,
+        action: WorkflowManagerAction,
+    },
+
     /// Open the agent picker for switching active threads.
     OpenAgentPicker,
     /// Switch the active thread to the selected agent.

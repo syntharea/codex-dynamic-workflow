@@ -1816,6 +1816,246 @@
           "type": "object"
         },
         {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/start"
+              ],
+              "title": "Workflow/startRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowStartParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/startRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/read"
+              ],
+              "title": "Workflow/readRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowReadParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/readRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/list"
+              ],
+              "title": "Workflow/listRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowListParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/listRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/pause"
+              ],
+              "title": "Workflow/pauseRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowPauseParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/pauseRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/resume"
+              ],
+              "title": "Workflow/resumeRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowResumeParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/resumeRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/cancel"
+              ],
+              "title": "Workflow/cancelRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowCancelParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/cancelRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/retry"
+              ],
+              "title": "Workflow/retryRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowRetryParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/retryRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/save"
+              ],
+              "title": "Workflow/saveRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowSaveParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/saveRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/run"
+              ],
+              "title": "Workflow/runRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowRunParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/runRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "workflow/delete"
+              ],
+              "title": "Workflow/deleteRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowDeleteParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Workflow/deleteRequest",
+          "type": "object"
+        },
+        {
           "description": "Append raw Responses API items to the thread history without starting a user turn.",
           "properties": {
             "id": {
@@ -13245,6 +13485,31 @@
       },
       "type": "object"
     },
+    "SavedWorkflow": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "objective": {
+          "type": "string"
+        },
+        "taskCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "objective",
+        "taskCount",
+        "title"
+      ],
+      "type": "object"
+    },
     "ScheduledTaskSchedule": {
       "oneOf": [
         {
@@ -13573,6 +13838,126 @@
             "params"
           ],
           "title": "Thread/closedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflow/started"
+              ],
+              "title": "Workflow/startedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowStartedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "Workflow/startedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflow/progress"
+              ],
+              "title": "Workflow/progressNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowProgressNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "Workflow/progressNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflow/paused"
+              ],
+              "title": "Workflow/pausedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowPausedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "Workflow/pausedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflow/completed"
+              ],
+              "title": "Workflow/completedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowCompletedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "Workflow/completedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflow/failed"
+              ],
+              "title": "Workflow/failedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowFailedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "Workflow/failedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflow/cancelled"
+              ],
+              "title": "Workflow/cancelledNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkflowCancelledNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "Workflow/cancelledNotification",
           "type": "object"
         },
         {
@@ -19511,6 +19896,710 @@
       ],
       "title": "WindowsWorldWritableWarningNotification",
       "type": "object"
+    },
+    "Workflow": {
+      "properties": {
+        "blockedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "completedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "failedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "queuedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "runningTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/WorkflowStatus"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/WorkflowTask"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blockedTasks",
+        "completedTasks",
+        "failedTasks",
+        "queuedTasks",
+        "runningTasks",
+        "status",
+        "summary",
+        "tasks",
+        "title",
+        "workflowId"
+      ],
+      "type": "object"
+    },
+    "WorkflowCancelParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflowId"
+      ],
+      "title": "WorkflowCancelParams",
+      "type": "object"
+    },
+    "WorkflowCancelResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "title": "WorkflowCancelResponse",
+      "type": "object"
+    },
+    "WorkflowCancelledNotification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflow"
+      ],
+      "title": "WorkflowCancelledNotification",
+      "type": "object"
+    },
+    "WorkflowCompletedNotification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflow"
+      ],
+      "title": "WorkflowCompletedNotification",
+      "type": "object"
+    },
+    "WorkflowDeleteParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "threadId"
+      ],
+      "title": "WorkflowDeleteParams",
+      "type": "object"
+    },
+    "WorkflowDeleteResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "deleted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deleted"
+      ],
+      "title": "WorkflowDeleteResponse",
+      "type": "object"
+    },
+    "WorkflowFailedNotification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "error",
+        "threadId",
+        "workflow"
+      ],
+      "title": "WorkflowFailedNotification",
+      "type": "object"
+    },
+    "WorkflowListItem": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "run"
+              ],
+              "title": "RunWorkflowListItemType",
+              "type": "string"
+            },
+            "workflow": {
+              "$ref": "#/definitions/Workflow"
+            }
+          },
+          "required": [
+            "type",
+            "workflow"
+          ],
+          "title": "RunWorkflowListItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "saved"
+              ],
+              "title": "SavedWorkflowListItemType",
+              "type": "string"
+            },
+            "workflow": {
+              "$ref": "#/definitions/SavedWorkflow"
+            }
+          },
+          "required": [
+            "type",
+            "workflow"
+          ],
+          "title": "SavedWorkflowListItem",
+          "type": "object"
+        }
+      ]
+    },
+    "WorkflowListParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "WorkflowListParams",
+      "type": "object"
+    },
+    "WorkflowListResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "data": {
+          "items": {
+            "$ref": "#/definitions/WorkflowListItem"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "title": "WorkflowListResponse",
+      "type": "object"
+    },
+    "WorkflowPauseParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflowId"
+      ],
+      "title": "WorkflowPauseParams",
+      "type": "object"
+    },
+    "WorkflowPauseResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "title": "WorkflowPauseResponse",
+      "type": "object"
+    },
+    "WorkflowPausedNotification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflow"
+      ],
+      "title": "WorkflowPausedNotification",
+      "type": "object"
+    },
+    "WorkflowPolicy": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "ultracode"
+              ],
+              "title": "UltracodeWorkflowPolicyType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "UltracodeWorkflowPolicy",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "deepResearch"
+              ],
+              "title": "DeepResearchWorkflowPolicyType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "DeepResearchWorkflowPolicy",
+          "type": "object"
+        }
+      ]
+    },
+    "WorkflowProgressNotification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "blockedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "completedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "failedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "queuedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "runningTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/WorkflowStatus"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blockedTasks",
+        "completedTasks",
+        "failedTasks",
+        "queuedTasks",
+        "runningTasks",
+        "status",
+        "summary",
+        "threadId",
+        "workflowId"
+      ],
+      "title": "WorkflowProgressNotification",
+      "type": "object"
+    },
+    "WorkflowReadParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflowId"
+      ],
+      "title": "WorkflowReadParams",
+      "type": "object"
+    },
+    "WorkflowReadResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "title": "WorkflowReadResponse",
+      "type": "object"
+    },
+    "WorkflowResumeParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflowId"
+      ],
+      "title": "WorkflowResumeParams",
+      "type": "object"
+    },
+    "WorkflowResumeResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "title": "WorkflowResumeResponse",
+      "type": "object"
+    },
+    "WorkflowRetryParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflowId"
+      ],
+      "title": "WorkflowRetryParams",
+      "type": "object"
+    },
+    "WorkflowRetryResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "title": "WorkflowRetryResponse",
+      "type": "object"
+    },
+    "WorkflowRunParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "taskOverrides": {
+          "items": {
+            "$ref": "#/definitions/WorkflowTaskOverride"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "threadId"
+      ],
+      "title": "WorkflowRunParams",
+      "type": "object"
+    },
+    "WorkflowRunResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "title": "WorkflowRunResponse",
+      "type": "object"
+    },
+    "WorkflowSaveParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "threadId",
+        "workflowId"
+      ],
+      "title": "WorkflowSaveParams",
+      "type": "object"
+    },
+    "WorkflowSaveResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "savedWorkflow": {
+          "$ref": "#/definitions/SavedWorkflow"
+        }
+      },
+      "required": [
+        "savedWorkflow"
+      ],
+      "title": "WorkflowSaveResponse",
+      "type": "object"
+    },
+    "WorkflowStartParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "objective": {
+          "type": "string"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkflowPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "objective",
+        "threadId"
+      ],
+      "title": "WorkflowStartParams",
+      "type": "object"
+    },
+    "WorkflowStartResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "workflow"
+      ],
+      "title": "WorkflowStartResponse",
+      "type": "object"
+    },
+    "WorkflowStartedNotification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflow"
+      ],
+      "title": "WorkflowStartedNotification",
+      "type": "object"
+    },
+    "WorkflowStatus": {
+      "enum": [
+        "planning",
+        "running",
+        "pausing",
+        "paused",
+        "consolidating",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "WorkflowTask": {
+      "properties": {
+        "attempt": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/WorkflowTaskStatus"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "status",
+        "summary",
+        "taskId",
+        "title"
+      ],
+      "type": "object"
+    },
+    "WorkflowTaskOverride": {
+      "properties": {
+        "instructions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "taskId": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "taskId"
+      ],
+      "type": "object"
+    },
+    "WorkflowTaskStatus": {
+      "enum": [
+        "queued",
+        "ready",
+        "running",
+        "waitingForApproval",
+        "succeeded",
+        "failed",
+        "blocked",
+        "cancelled"
+      ],
+      "type": "string"
     },
     "WorkspaceMessage": {
       "properties": {

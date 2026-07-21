@@ -5843,6 +5843,253 @@
         "samplePaths"
       ],
       "type": "object"
+    },
+    "Workflow": {
+      "properties": {
+        "blockedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "completedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "failedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "queuedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "runningTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/WorkflowStatus"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/WorkflowTask"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blockedTasks",
+        "completedTasks",
+        "failedTasks",
+        "queuedTasks",
+        "runningTasks",
+        "status",
+        "summary",
+        "tasks",
+        "title",
+        "workflowId"
+      ],
+      "type": "object"
+    },
+    "WorkflowCancelledNotification": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflow"
+      ],
+      "type": "object"
+    },
+    "WorkflowCompletedNotification": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflow"
+      ],
+      "type": "object"
+    },
+    "WorkflowFailedNotification": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "error",
+        "threadId",
+        "workflow"
+      ],
+      "type": "object"
+    },
+    "WorkflowPausedNotification": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflow"
+      ],
+      "type": "object"
+    },
+    "WorkflowProgressNotification": {
+      "properties": {
+        "blockedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "completedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "failedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "queuedTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "runningTasks": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/WorkflowStatus"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "workflowId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blockedTasks",
+        "completedTasks",
+        "failedTasks",
+        "queuedTasks",
+        "runningTasks",
+        "status",
+        "summary",
+        "threadId",
+        "workflowId"
+      ],
+      "type": "object"
+    },
+    "WorkflowStartedNotification": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/definitions/Workflow"
+        }
+      },
+      "required": [
+        "threadId",
+        "workflow"
+      ],
+      "type": "object"
+    },
+    "WorkflowStatus": {
+      "enum": [
+        "planning",
+        "running",
+        "pausing",
+        "paused",
+        "consolidating",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "WorkflowTask": {
+      "properties": {
+        "attempt": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/WorkflowTaskStatus"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "status",
+        "summary",
+        "taskId",
+        "title"
+      ],
+      "type": "object"
+    },
+    "WorkflowTaskStatus": {
+      "enum": [
+        "queued",
+        "ready",
+        "running",
+        "waitingForApproval",
+        "succeeded",
+        "failed",
+        "blocked",
+        "cancelled"
+      ],
+      "type": "string"
     }
   },
   "description": "Notification sent from the server to the client.",
@@ -5986,6 +6233,126 @@
         "params"
       ],
       "title": "Thread/closedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflow/started"
+          ],
+          "title": "Workflow/startedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowStartedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Workflow/startedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflow/progress"
+          ],
+          "title": "Workflow/progressNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowProgressNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Workflow/progressNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflow/paused"
+          ],
+          "title": "Workflow/pausedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowPausedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Workflow/pausedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflow/completed"
+          ],
+          "title": "Workflow/completedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowCompletedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Workflow/completedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflow/failed"
+          ],
+          "title": "Workflow/failedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowFailedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Workflow/failedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflow/cancelled"
+          ],
+          "title": "Workflow/cancelledNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowCancelledNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Workflow/cancelledNotification",
       "type": "object"
     },
     {

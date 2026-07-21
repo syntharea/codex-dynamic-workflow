@@ -150,6 +150,8 @@ pub enum Feature {
     Collab,
     /// Enable task-path-based multi-agent routing.
     MultiAgentV2,
+    /// Enable native dynamic workflows.
+    DynamicWorkflows,
     /// Removed compatibility flag retained as a no-op.
     MultiAgentMode,
     /// Enable CSV-backed agent job tools.
@@ -1051,6 +1053,12 @@ pub const FEATURES: &[FeatureSpec] = &[
         key: "multi_agent_v2",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
+    },
+    FeatureSpec {
+        id: Feature::DynamicWorkflows,
+        key: "dynamic_workflows",
+        stage: Stage::Stable,
+        default_enabled: true,
     },
     FeatureSpec {
         id: Feature::MultiAgentMode,

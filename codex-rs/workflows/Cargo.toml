@@ -1,0 +1,23 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "codex-workflows"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "codex_workflows"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+unicode-ident = "1.0.22"
+uuid = { workspace = true, features = ["serde", "v4"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

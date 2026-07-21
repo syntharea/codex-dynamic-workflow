@@ -533,7 +533,12 @@ pub async fn thread_rollback(sess: &Arc<Session>, sub_id: String, num_turns: u32
         .into_iter()
         .chain(std::iter::once(RolloutItem::EventMsg(rollback_msg.clone())))
         .collect::<Vec<_>>();
-    sess.apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice())
+    let _ = sess
+        .apply_rollout_reconstruction(
+            turn_context.as_ref(),
+            replay_items.as_slice(),
+            /*persist_workflows*/ false,
+        )
         .await;
     sess.services
         .agent_control
@@ -595,6 +600,10 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
 }
 
 async fn shutdown_session_runtime(sess: &Arc<Session>) {
+    sess.services
+        .agent_control
+        .abort_workflow_tasks(sess.thread_id())
+        .await;
     if let Some(startup_prewarm) = sess.take_session_startup_prewarm().await {
         startup_prewarm.abort().await;
     }
@@ -841,6 +850,20 @@ pub(super) async fn submission_loop(
                 }
                 Op::ApproveGuardianDeniedAction { event } => {
                     approve_guardian_denied_action(&sess, event).await;
+                    false
+                }
+                op @ (Op::WorkflowStart(_)
+                | Op::WorkflowRead(_)
+                | Op::WorkflowList(_)
+                | Op::WorkflowPause(_)
+                | Op::WorkflowResume(_)
+                | Op::WorkflowCancel(_)
+                | Op::WorkflowRetry(_)
+                | Op::WorkflowSave(_)
+                | Op::WorkflowRunSaved(_)
+                | Op::WorkflowDeleteSaved(_)) => {
+                    crate::workflows::handle_session_op(Arc::clone(&sess), sub.id.clone(), op)
+                        .await;
                     false
                 }
                 _ => false, // Ignore unknown ops; enum is non_exhaustive to allow extensions.

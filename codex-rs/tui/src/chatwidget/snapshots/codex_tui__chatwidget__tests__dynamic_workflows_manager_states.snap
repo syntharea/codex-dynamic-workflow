@@ -1,0 +1,15 @@
+---
+source: tui/src/chatwidget/tests/workflows.rs
+expression: "render_bottom_popup(&chat, 100)"
+---
+  Workflows
+  Open a run or saved workflow to manage it.
+
+› 1. [planning] planning workflow    0 completed · 0 running · 1 queued · 0 blocked · 0 failed
+  2. [running] running workflow      0 completed · 1 running · 0 queued · 0 blocked · 0 failed
+  3. [paused] paused workflow        0 completed · 0 running · 0 queued · 0 blocked · 0 failed
+  4. [failed] failed workflow        0 completed · 0 running · 0 queued · 0 blocked · 1 failed
+  5. [completed] completed workflow  1 completed · 0 running · 0 queued · 0 blocked · 0 failed
+  6. [saved] Saved release workflow  4 tasks · Prepare a release
+
+  Press enter to confirm or esc to go back

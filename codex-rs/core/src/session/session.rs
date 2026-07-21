@@ -456,6 +456,10 @@ async fn warm_plugins_and_skills_for_session_init(
 }
 
 impl Session {
+    pub(crate) fn feature_enabled(&self, feature: Feature) -> bool {
+        self.features.enabled(feature)
+    }
+
     /// Returns the concrete identity for this thread.
     pub(crate) fn thread_id(&self) -> ThreadId {
         self.thread_id
@@ -507,6 +511,9 @@ impl Session {
             session_configuration.collaboration_mode.model(),
             session_configuration.provider
         );
+        if let InitialHistory::Forked(items) = &mut initial_history {
+            items.retain(|item| !matches!(item, RolloutItem::WorkflowState(_)));
+        }
         let forked_from_id = session_configuration
             .forked_from_thread_id
             .or_else(|| initial_history.forked_from_id());
@@ -533,6 +540,15 @@ impl Session {
         }
         let multi_agent_version = multi_agent_version.map(OnceLock::from).unwrap_or_default();
         let initial_multi_agent_version = multi_agent_version.get().copied();
+        let model_info = models_manager
+            .get_model_info(
+                session_configuration.collaboration_mode.model(),
+                &config.to_models_manager_config(),
+            )
+            .await;
+        let effective_multi_agent_version = config.multi_agent_version_for_model(
+            initial_multi_agent_version.or(model_info.multi_agent_version),
+        );
 
         let thread_id = match &initial_history {
             InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_) => {
@@ -561,12 +577,30 @@ impl Session {
                 SessionId::from(thread_id)
             }
         });
+        if !session_configuration.session_source.is_non_root_agent() {
+            let workflow_limits = config
+                .workflows
+                .workflow_limits(config.effective_agent_max_threads(effective_multi_agent_version));
+            agent_control
+                .configure_workflow_manager(crate::workflows::WorkflowManagerConfig {
+                    enabled: effective_multi_agent_version != MultiAgentVersion::Disabled,
+                    pause_timeout: std::time::Duration::from_secs(
+                        config.workflows.pause_timeout_seconds,
+                    ),
+                    ..crate::workflows::WorkflowManagerConfig::from_workflow_limits(workflow_limits)
+                })
+                .await?;
+        }
         let initial_auto_compact_window_ids = AutoCompactWindowIds::new_initial();
         let agent_control = agent_control.with_session_id(
             session_id,
-            config
-                .effective_agent_max_threads(MultiAgentVersion::V2)
-                .unwrap_or(usize::MAX),
+            if effective_multi_agent_version == MultiAgentVersion::Disabled {
+                0
+            } else {
+                config
+                    .effective_agent_max_threads(effective_multi_agent_version)
+                    .unwrap_or(usize::MAX)
+            },
         );
         let time_provider = crate::current_time::resolve_time_provider(
             config.current_time_reminder.as_ref(),
@@ -1267,7 +1301,7 @@ impl Session {
             };
 
             // record_initial_history can emit events. We record only after the SessionConfiguredEvent is emitted.
-            Box::pin(sess.record_initial_history(initial_history)).await;
+            Box::pin(sess.record_initial_history(initial_history)).await?;
             {
                 let mut state = sess.state.lock().await;
                 state.queue_pending_session_start_source(session_start_source);

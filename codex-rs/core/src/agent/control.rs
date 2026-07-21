@@ -43,10 +43,13 @@ use codex_thread_store::LoadThreadHistoryParams;
 use codex_thread_store::ReadThreadParams;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Weak;
+use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::watch;
+use tokio::task::JoinHandle;
 use tracing::warn;
 
 pub(crate) use self::execution::AgentExecutionGuard;
@@ -57,6 +60,7 @@ mod execution;
 mod legacy;
 mod residency;
 mod spawn;
+mod workflow;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SpawnAgentForkMode {
@@ -105,6 +109,9 @@ pub(crate) struct AgentControl {
     agent_execution_limiter: Arc<AgentExecutionLimiter>,
     /// Session-scoped state shared by the root thread and every cloned sub-agent control handle.
     rollout_budget: Arc<RolloutBudget>,
+    workflow_manager: Arc<crate::workflows::WorkflowManager>,
+    workflow_tasks: Arc<TokioMutex<HashMap<ThreadId, Vec<JoinHandle<()>>>>>,
+    workflow_agents: Arc<TokioMutex<HashMap<ThreadId, HashSet<ThreadId>>>>,
 }
 
 impl AgentControl {
@@ -135,6 +142,69 @@ impl AgentControl {
 
     pub(crate) fn rollout_budget(&self) -> &RolloutBudget {
         self.rollout_budget.as_ref()
+    }
+
+    pub(crate) fn workflow_manager(&self) -> Arc<crate::workflows::WorkflowManager> {
+        Arc::clone(&self.workflow_manager)
+    }
+
+    pub(crate) async fn register_workflow_task(&self, owner: ThreadId, task: JoinHandle<()>) {
+        let mut tasks = self.workflow_tasks.lock().await;
+        let owner_tasks = tasks.entry(owner).or_default();
+        owner_tasks.retain(|handle| !handle.is_finished());
+        owner_tasks.push(task);
+    }
+
+    pub(crate) async fn abort_workflow_tasks(&self, owner: ThreadId) {
+        let tasks = self
+            .workflow_tasks
+            .lock()
+            .await
+            .remove(&owner)
+            .unwrap_or_default();
+        for task in &tasks {
+            task.abort();
+        }
+        for task in tasks {
+            let _ = task.await;
+        }
+        let agents = self
+            .workflow_agents
+            .lock()
+            .await
+            .remove(&owner)
+            .unwrap_or_default();
+        for agent_id in agents {
+            if let Err(error) = self.close_agent(agent_id).await {
+                warn!(%error, %agent_id, "failed to close workflow agent during session teardown");
+            }
+        }
+    }
+
+    pub(crate) async fn register_workflow_agent(&self, owner: ThreadId, agent_id: ThreadId) {
+        self.workflow_agents
+            .lock()
+            .await
+            .entry(owner)
+            .or_default()
+            .insert(agent_id);
+    }
+
+    pub(crate) async fn unregister_workflow_agent(&self, owner: ThreadId, agent_id: ThreadId) {
+        let mut agents = self.workflow_agents.lock().await;
+        if let Some(owner_agents) = agents.get_mut(&owner) {
+            owner_agents.remove(&agent_id);
+            if owner_agents.is_empty() {
+                agents.remove(&owner);
+            }
+        }
+    }
+
+    pub(crate) async fn configure_workflow_manager(
+        &self,
+        config: crate::workflows::WorkflowManagerConfig,
+    ) -> Result<(), codex_workflows::WorkflowError> {
+        self.workflow_manager.configure(config).await
     }
 
     /// Send rich user input items to an existing agent thread.

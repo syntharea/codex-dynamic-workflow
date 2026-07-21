@@ -16,6 +16,7 @@ use codex_protocol::protocol::TurnAbortReason;
 use codex_protocol::protocol::TurnAbortedEvent;
 use codex_protocol::protocol::TurnCompleteEvent;
 use codex_protocol::protocol::TurnStartedEvent;
+use codex_protocol::protocol::WorkflowStateItem;
 use pretty_assertions::assert_eq;
 
 use super::CompletedTurnMeasurement;
@@ -76,6 +77,24 @@ fn update_for_batch(
 ) -> super::TurnMeasurementUpdate {
     let (_, measurement) = measure_and_filter_rollout_items(items, ThreadHistoryMode::Legacy);
     update_turn_measurements(state, items, &measurement)
+}
+
+#[test]
+fn workflow_snapshot_is_not_counted_in_turn_measurements() {
+    let snapshot = RolloutItem::WorkflowState(
+        WorkflowStateItem::try_new(
+            /*schema_version*/ 1,
+            "wf_123",
+            serde_json::json!({"state": "running"}),
+        )
+        .expect("workflow snapshot"),
+    );
+    let mut state = TurnMeasurementState::default();
+
+    update_for_batch(&mut state, &[snapshot]);
+
+    assert_eq!(state.pending.pre_filter.items, 0);
+    assert_eq!(state.pending.post_filter.items, 0);
 }
 
 #[test]

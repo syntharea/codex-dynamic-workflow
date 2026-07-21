@@ -14,6 +14,7 @@ use crate::bottom_pane::slash_commands::SlashCommandItem;
 use crate::bottom_pane::slash_commands::find_slash_command;
 use crate::goal_display::GOAL_USAGE;
 use crate::goal_files::GoalDraft;
+use codex_app_server_protocol::WorkflowPolicy;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlashCommandDispatchSource {
@@ -172,6 +173,16 @@ impl ChatWidget {
             }
             SlashCommand::New => {
                 self.app_event_tx.send(AppEvent::NewSession);
+            }
+            SlashCommand::Effort => {
+                self.open_effort_popup();
+            }
+            SlashCommand::DeepResearch => {
+                self.arm_workflow(WorkflowPolicy::DeepResearch);
+            }
+            SlashCommand::Workflows => {
+                self.open_workflow_manager_loading();
+                self.app_event_tx.send(AppEvent::OpenWorkflowManager);
             }
             SlashCommand::Archive => {
                 self.bottom_pane.show_selection_view(SelectionViewParams {
@@ -671,6 +682,8 @@ impl ChatWidget {
         } = prepared;
         let trimmed = args.trim();
         match cmd {
+            SlashCommand::Effort => self.handle_effort_args(trimmed),
+            SlashCommand::DeepResearch => self.handle_deep_research_args(trimmed),
             SlashCommand::Usage => {
                 if self.ensure_usage_command_available() {
                     match tokens::TokenActivityView::parse(trimmed) {
@@ -1046,6 +1059,8 @@ impl ChatWidget {
         }
         match cmd {
             SlashCommand::Ide
+            | SlashCommand::Effort
+            | SlashCommand::Workflows
             | SlashCommand::Status
             | SlashCommand::Usage
             | SlashCommand::DebugConfig
@@ -1074,6 +1089,7 @@ impl ChatWidget {
             | SlashCommand::Init
             | SlashCommand::Compact
             | SlashCommand::Review
+            | SlashCommand::DeepResearch
             | SlashCommand::Model
             | SlashCommand::Personality
             | SlashCommand::Plan

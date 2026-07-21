@@ -66,6 +66,8 @@ impl ModelContextScan {
     /// Call this after the reader reaches the beginning of its source or after [`Self::push`]
     /// returns [`ModelContextScanProgress::Complete`].
     pub fn finish(mut self, session_meta: SessionMetaLine) -> Vec<RolloutItem> {
+        self.items_newest_first
+            .retain(|item| !matches!(item, RolloutItem::WorkflowState(_)));
         self.items_newest_first.reverse();
         if self.has_bounded_cutoff() {
             // A bounded scan stops before reaching the head. Prepend the separately loaded head
@@ -152,7 +154,8 @@ impl ModelContextScan {
             RolloutItem::EventMsg(_)
             | RolloutItem::SessionMeta(_)
             | RolloutItem::InterAgentCommunicationMetadata { .. }
-            | RolloutItem::WorldState(_) => {}
+            | RolloutItem::WorldState(_)
+            | RolloutItem::WorkflowState(_) => {}
         }
 
         if self.has_bounded_cutoff() {
@@ -195,3 +198,7 @@ fn response_item_counts_as_user_turn(response_item: &ResponseItem) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+#[path = "model_context_tests.rs"]
+mod tests;

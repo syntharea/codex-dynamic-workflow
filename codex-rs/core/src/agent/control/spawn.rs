@@ -3,6 +3,8 @@ use super::*;
 use crate::agent::role::apply_role_to_config;
 use crate::config::PermissionProfileSnapshot;
 use codex_extension_api::ExtensionDataInit;
+use codex_protocol::error::CodexErr;
+use codex_workflows::WorkflowDispatchMarker;
 
 const AGENT_NAMES: &str = include_str!("../agent_names.txt");
 
@@ -17,9 +19,10 @@ struct SpawnAgentThreadInheritance {
 /// submission and lifecycle logging cannot receive one without the other. Other spawn sources
 /// provide user input directly, making an uncontextualized inter-agent communication
 /// unrepresentable.
-enum SpawnInitialInput {
+pub(super) enum SpawnInitialInput {
     UserInput(Vec<UserInput>),
     InterAgentCommunication(InterAgentCommunication, AgentCommunicationContext),
+    DeferredWorkflow,
 }
 
 fn default_agent_nickname_list() -> Vec<&'static str> {
@@ -76,6 +79,8 @@ fn keep_forked_rollout_item(item: &RolloutItem, preserve_reference_context_item:
         // from the parent's durable baseline. Truncated forks drop part of that prompt,
         // so they must rebuild context on their first child turn.
         RolloutItem::TurnContext(_) | RolloutItem::WorldState(_) => preserve_reference_context_item,
+        // Workflow snapshots are durable recovery state, not agent metadata for a fork.
+        RolloutItem::WorkflowState(_) => false,
         RolloutItem::Compacted(_) | RolloutItem::EventMsg(_) | RolloutItem::SessionMeta(_) => true,
     }
 }
@@ -208,6 +213,7 @@ impl AgentControl {
             SpawnInitialInput::UserInput(initial_input),
             session_source,
             SpawnAgentOptions::default(),
+            /*workflow_dispatch*/ None,
         ))
         .await?;
         Ok(spawned_agent.thread_id)
@@ -226,6 +232,7 @@ impl AgentControl {
             SpawnInitialInput::UserInput(initial_input),
             session_source,
             options,
+            /*workflow_dispatch*/ None,
         ))
         .await
     }
@@ -243,6 +250,7 @@ impl AgentControl {
             SpawnInitialInput::InterAgentCommunication(communication, context),
             session_source,
             options,
+            /*workflow_dispatch*/ None,
         ))
         .await
     }
@@ -362,14 +370,16 @@ impl AgentControl {
         }
     }
 
-    async fn spawn_agent_internal(
+    pub(super) async fn spawn_agent_internal(
         &self,
         config: Config,
         initial_input: SpawnInitialInput,
         session_source: Option<SessionSource>,
         options: SpawnAgentOptions,
+        workflow_dispatch: Option<WorkflowDispatchMarker>,
     ) -> CodexResult<LiveAgent> {
         let state = self.upgrade()?;
+        let dispatch_start_deferred = matches!(&initial_input, SpawnInitialInput::DeferredWorkflow);
         let multi_agent_version = state
             .effective_multi_agent_version_for_spawn(
                 &InitialHistory::New,
@@ -480,6 +490,20 @@ impl AgentControl {
             residency_slot.commit(new_thread.thread_id);
         }
 
+        let workflow_dispatch_persisted = if let Some(workflow_dispatch) = workflow_dispatch {
+            self.persist_workflow_dispatch_marker(
+                &state,
+                new_thread.thread.as_ref(),
+                new_thread.thread_id,
+                notification_source.as_ref(),
+                &workflow_dispatch,
+            )
+            .await?;
+            true
+        } else {
+            false
+        };
+
         if let Some(SessionSource::SubAgent(
             subagent_source @ SubAgentSource::ThreadSpawn {
                 parent_thread_id, ..
@@ -516,14 +540,18 @@ impl AgentControl {
         // Notify a new thread has been created. This notification will be processed by clients
         // to subscribe or drain this newly created thread.
         // TODO(jif) add helper for drain
-        state.notify_thread_created(new_thread.thread_id);
+        if !dispatch_start_deferred {
+            state.notify_thread_created(new_thread.thread_id);
+        }
 
-        self.persist_thread_spawn_edge_for_source(
-            new_thread.thread.as_ref(),
-            new_thread.thread_id,
-            notification_source.as_ref(),
-        )
-        .await;
+        if !workflow_dispatch_persisted {
+            self.persist_thread_spawn_edge_for_source(
+                new_thread.thread.as_ref(),
+                new_thread.thread_id,
+                notification_source.as_ref(),
+            )
+            .await;
+        }
 
         match initial_input {
             SpawnInitialInput::UserInput(input) => {
@@ -539,6 +567,7 @@ impl AgentControl {
                 )
                 .await?;
             }
+            SpawnInitialInput::DeferredWorkflow => {}
         }
         if multi_agent_version != MultiAgentVersion::V2 {
             let child_reference = agent_metadata

@@ -265,7 +265,9 @@ fn lagged_event_warning_message_is_explicit() {
 #[test]
 fn runtime_warnings_are_filtered_to_the_primary_thread() {
     let primary_thread_id = "thread-1";
-    let turn_id = "turn-1";
+    let target = OperationTarget::Turn {
+        turn_id: "turn-1".to_string(),
+    };
     let outcomes = [
         codex_app_server_protocol::WarningNotification {
             thread_id: None,
@@ -284,11 +286,107 @@ fn runtime_warnings_are_filtered_to_the_primary_thread() {
         should_process_notification(
             &ServerNotification::Warning(warning),
             primary_thread_id,
-            turn_id,
+            &target,
         )
     });
 
     assert_eq!(outcomes, [true, true, false]);
+}
+
+#[test]
+fn workflow_notifications_are_filtered_to_the_target_thread_and_workflow() {
+    let target = OperationTarget::Workflow {
+        workflow_id: "workflow-1".to_string(),
+    };
+    let workflow = codex_app_server_protocol::Workflow {
+        workflow_id: "workflow-1".to_string(),
+        title: "Workflow".to_string(),
+        status: codex_app_server_protocol::WorkflowStatus::Running,
+        tasks: Vec::new(),
+        completed_tasks: 0,
+        running_tasks: 1,
+        queued_tasks: 0,
+        blocked_tasks: 0,
+        failed_tasks: 0,
+        summary: "running".to_string(),
+    };
+    let notifications = [
+        ServerNotification::WorkflowStarted(
+            codex_app_server_protocol::WorkflowStartedNotification {
+                thread_id: "thread-1".to_string(),
+                workflow: workflow.clone(),
+            },
+        ),
+        ServerNotification::WorkflowProgress(
+            codex_app_server_protocol::WorkflowProgressNotification {
+                thread_id: "thread-1".to_string(),
+                workflow_id: "workflow-1".to_string(),
+                status: codex_app_server_protocol::WorkflowStatus::Running,
+                completed_tasks: 0,
+                running_tasks: 1,
+                queued_tasks: 0,
+                blocked_tasks: 0,
+                failed_tasks: 0,
+                summary: "running".to_string(),
+            },
+        ),
+        ServerNotification::WorkflowPaused(codex_app_server_protocol::WorkflowPausedNotification {
+            thread_id: "thread-1".to_string(),
+            workflow: workflow.clone(),
+        }),
+        ServerNotification::WorkflowCompleted(
+            codex_app_server_protocol::WorkflowCompletedNotification {
+                thread_id: "thread-1".to_string(),
+                workflow: workflow.clone(),
+            },
+        ),
+        ServerNotification::WorkflowFailed(codex_app_server_protocol::WorkflowFailedNotification {
+            thread_id: "thread-1".to_string(),
+            workflow: workflow.clone(),
+            error: "failed".to_string(),
+        }),
+        ServerNotification::WorkflowCancelled(
+            codex_app_server_protocol::WorkflowCancelledNotification {
+                thread_id: "thread-1".to_string(),
+                workflow: workflow.clone(),
+            },
+        ),
+        ServerNotification::WorkflowCompleted(
+            codex_app_server_protocol::WorkflowCompletedNotification {
+                thread_id: "thread-1".to_string(),
+                workflow: codex_app_server_protocol::Workflow {
+                    workflow_id: "workflow-2".to_string(),
+                    ..workflow.clone()
+                },
+            },
+        ),
+        ServerNotification::WorkflowCompleted(
+            codex_app_server_protocol::WorkflowCompletedNotification {
+                thread_id: "thread-2".to_string(),
+                workflow,
+            },
+        ),
+        ServerNotification::TurnStarted(codex_app_server_protocol::TurnStartedNotification {
+            thread_id: "thread-1".to_string(),
+            turn: codex_app_server_protocol::Turn {
+                id: "turn-1".to_string(),
+                items_view: codex_app_server_protocol::TurnItemsView::Full,
+                items: Vec::new(),
+                status: codex_app_server_protocol::TurnStatus::InProgress,
+                error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
+            },
+        }),
+    ];
+    let outcomes = notifications
+        .map(|notification| should_process_notification(&notification, "thread-1", &target));
+
+    assert_eq!(
+        outcomes,
+        [true, true, true, true, true, true, false, false, false]
+    );
 }
 
 #[tokio::test]

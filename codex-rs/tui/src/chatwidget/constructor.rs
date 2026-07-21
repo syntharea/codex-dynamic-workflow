@@ -203,6 +203,7 @@ impl ChatWidget {
             forked_from: None,
             interrupted_turn_notice_mode: InterruptedTurnNoticeMode::Default,
             input_queue: InputQueueState::default(),
+            workflow_ui: WorkflowUiState::default(),
             safety_buffering_prompt: None,
             chat_keymap,
             queued_message_edit_hint_binding,

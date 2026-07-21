@@ -1,0 +1,12 @@
+---
+source: tui/src/chatwidget/tests/workflows.rs
+expression: "render_bottom_popup(&chat, 86)"
+---
+  Select Effort
+  Ultracode is one-shot; regular reasoning settings remain unchanged.
+
+› 1. Ultracode (next prompt)    Plan and execute a dynamic workflow once without
+                                changing reasoning defaults.
+  2. Regular reasoning effort…  Change the current model's reasoning level.
+
+  Press enter to confirm or esc to go back

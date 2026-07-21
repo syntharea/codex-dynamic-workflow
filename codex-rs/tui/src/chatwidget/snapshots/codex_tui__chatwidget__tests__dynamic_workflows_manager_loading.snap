@@ -1,0 +1,9 @@
+---
+source: tui/src/chatwidget/tests/workflows.rs
+expression: "render_bottom_popup(&chat, 92)"
+---
+  Workflows
+
+›    Loading workflows…
+
+  Press enter to confirm or esc to go back

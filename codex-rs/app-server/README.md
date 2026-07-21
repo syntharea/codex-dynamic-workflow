@@ -10,6 +10,7 @@
 - [Lifecycle Overview](#lifecycle-overview)
 - [Initialization](#initialization)
 - [API Overview](#api-overview)
+- [Dynamic Workflows](#dynamic-workflows)
 - [Events](#events)
 - [Approvals](#approvals)
 - [Skills](#skills)
@@ -144,6 +145,13 @@ Example with notification opt-out:
 - `thread/list` — page through stored threads; supports cursor-based pagination and optional `modelProviders`, `sourceKinds`, `archived`, `cwd`, and `searchTerm` filters. Experimental clients can use `parentThreadId` for direct spawned children or `ancestorThreadId` for spawned descendants at any depth; the two filters are mutually exclusive. Review and Guardian threads are not included because they do not participate in that spawn-edge lifecycle. Each returned `thread` includes `status` (`ThreadStatus`), defaulting to `notLoaded` when the thread is not currently loaded. Subagent threads also include `parentThreadId` when the immediate parent is known.
 - `thread/loaded/list` — list the thread ids currently loaded in memory.
 - `thread/read` — read a stored thread by id without resuming it; optionally include turns via `includeTurns`. The returned `thread` includes `status` (`ThreadStatus`), defaulting to `notLoaded` when the thread is not currently loaded. For loaded threads, experimental clients can use `canAcceptDirectInput` to determine whether `turn/start` and `turn/steer` are accepted; unloaded stored threads report `null` when that capability is unavailable.
+- `workflow/start` — start native workflow planning for a loaded thread and return the initial workflow snapshot. `policy` accepts `ultracode` or `deepResearch`; execution continues in the background.
+- `workflow/read` — read one workflow owned by a loaded thread.
+- `workflow/list` — page through both workflow runs and effective saved workflow definitions for a loaded thread.
+- `workflow/pause`, `workflow/resume`, `workflow/cancel`, and `workflow/retry` — control one workflow run and return its persisted snapshot.
+- `workflow/save` — save an accepted workflow definition under a reusable name in `$CODEX_HOME/workflows`.
+- `workflow/run` — instantiate a saved definition with a fresh workflow id and optional task title/instruction overrides.
+- `workflow/delete` — delete a saved global definition and return whether it existed.
 - `thread/turns/list` — experimental; page through a stored thread’s turn history without resuming it; supports cursor-based pagination with `sortDirection`, `itemsView`, `nextCursor`, and `backwardsCursor`.
 - `thread/items/list` — experimental; page through persisted thread items without resuming the thread. Pass `turnId` to restrict results to one turn, or omit it to page items across the thread. The active thread store must support item pagination.
 - `thread/searchOccurrences` — experimental; find literal, case-insensitive matches in visible user messages and summary-selected final assistant messages within one paginated thread.
@@ -1375,6 +1383,55 @@ All filesystem paths in this section must be absolute.
 } }
 { "id": 45, "result": {} }
 ```
+
+## Dynamic Workflows
+
+Dynamic workflows run a bounded task graph with native Rust scheduling. Requests are scoped to a loaded `threadId`; workflow ids cannot be used from another thread. Starting a workflow returns immediately after the initial planning snapshot is persisted:
+
+```json
+{ "method": "workflow/start", "id": 60, "params": {
+    "threadId": "thr_123",
+    "objective": "Investigate the regression and implement a verified fix",
+    "policy": { "type": "ultracode" }
+} }
+{ "id": 60, "result": {
+    "workflow": {
+        "workflowId": "0195ec6b-1d6f-7c2e-8c7a-56f2c4a8b9d1",
+        "title": "Planning workflow",
+        "status": "planning",
+        "tasks": [],
+        "completedTasks": 0,
+        "runningTasks": 0,
+        "queuedTasks": 0,
+        "blockedTasks": 0,
+        "failedTasks": 0,
+        "summary": ""
+    }
+} }
+```
+
+Use `workflow/read` for one run, or `workflow/list` with opaque cursor pagination. List results are tagged as either `{ "type": "run", "workflow": ... }` or `{ "type": "saved", "workflow": ... }`.
+
+Accepted definitions can be saved and reused. `workflow/run` always creates a fresh workflow id; task overrides identify tasks by their saved `taskId` and may replace `title`, `instructions`, or both:
+
+```json
+{ "method": "workflow/save", "id": 61, "params": {
+    "threadId": "thr_123",
+    "workflowId": "0195ec6b-1d6f-7c2e-8c7a-56f2c4a8b9d1",
+    "name": "release-check"
+} }
+{ "method": "workflow/run", "id": 62, "params": {
+    "threadId": "thr_123",
+    "name": "release-check",
+    "taskOverrides": [{
+        "taskId": "verify",
+        "title": null,
+        "instructions": "Run the release validation suite"
+    }]
+} }
+```
+
+Lifecycle notifications are thread scoped and use the latest persisted workflow state: `workflow/started`, `workflow/progress`, `workflow/paused`, `workflow/completed`, `workflow/failed`, and `workflow/cancelled`. Workflow snapshots are persisted for cold resume but are not injected into model context or returned as thread items.
 
 ## Events
 
