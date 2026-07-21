@@ -10,6 +10,8 @@
 - **Claude Code 风格命令体验**：支持 `ultracode`、`/effort ultracode`、`/deep-research` 和 `/workflows`。
 - **跨入口一致**：Dynamic Workflow 同时覆盖 TUI、`codex exec` 和 app-server v2。
 - **保存与复用**：支持用户级 `$CODEX_HOME/workflows/*.json` 和受信任项目级 `.codex/workflows/*.json`。
+- **LetsLLM 默认 API**：默认 API Base URL 为 `https://api.letsllm.com/v1`，仍可通过配置覆盖。
+- **飞书账号登录**：支持 `codex login --feishu`，通过 LetsLLM 飞书登录并保存 API Key。
 
 ## 不安装直接运行
 
@@ -37,6 +39,14 @@ just exec "ultracode review this repository and fix the highest-risk issue"
 ```
 
 ## 登录
+
+### 飞书登录
+
+```bash
+just codex login --feishu
+```
+
+命令会打开 LetsLLM 飞书登录页面。登录后创建 API Key，并按终端提示粘贴保存。
 
 ### API Key
 

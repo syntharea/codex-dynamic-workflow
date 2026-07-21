@@ -22,6 +22,13 @@ use codex_login::run_login_server;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_utils_cli::CliConfigOverrides;
+use crossterm::event::Event;
+use crossterm::event::KeyCode;
+use crossterm::event::KeyEventKind;
+use crossterm::event::KeyModifiers;
+use crossterm::event::read;
+use crossterm::terminal::disable_raw_mode;
+use crossterm::terminal::enable_raw_mode;
 use std::fs::OpenOptions;
 use std::io::IsTerminal;
 use std::io::Read;
@@ -41,6 +48,23 @@ const API_KEY_LOGIN_DISABLED_MESSAGE: &str =
 const ACCESS_TOKEN_LOGIN_DISABLED_MESSAGE: &str =
     "Access token login is disabled. Use API key login instead.";
 const LOGIN_SUCCESS_MESSAGE: &str = "Successfully logged in";
+const LETSLLM_FEISHU_LOGIN_URL: &str = "https://api.letsllm.com/oauth/feishu";
+const LETSLLM_API_KEYS_URL: &str = "https://api.letsllm.com/keys";
+
+struct RawModeGuard;
+
+impl RawModeGuard {
+    fn enable() -> std::io::Result<Self> {
+        enable_raw_mode()?;
+        Ok(Self)
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+    }
+}
 
 /// Installs a small file-backed tracing layer for direct `codex login` flows.
 ///
@@ -220,6 +244,102 @@ pub async fn run_login_with_api_key(
         }
         Err(e) => {
             eprintln!("Error logging in: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+pub async fn run_login_with_feishu(cli_config_overrides: CliConfigOverrides) -> ! {
+    let config = load_config_or_exit(cli_config_overrides).await;
+    let _login_log_guard = init_login_file_logging(&config);
+    tracing::info!(
+        login_url = LETSLLM_FEISHU_LOGIN_URL,
+        "starting Feishu login flow"
+    );
+
+    if matches!(config.forced_login_method, Some(ForcedLoginMethod::Chatgpt)) {
+        eprintln!("{API_KEY_LOGIN_DISABLED_MESSAGE}");
+        std::process::exit(1);
+    }
+
+    eprintln!("Opening LetsLLM Feishu sign-in: {LETSLLM_FEISHU_LOGIN_URL}");
+    if let Err(err) = webbrowser::open(LETSLLM_FEISHU_LOGIN_URL) {
+        eprintln!("Could not open the browser automatically: {err}");
+    }
+    eprintln!(
+        "After signing in with Feishu, create an API key at {LETSLLM_API_KEYS_URL}, then paste it here."
+    );
+
+    let api_key = if std::io::stdin().is_terminal() {
+        eprint!("LetsLLM API key (input hidden): ");
+        let _raw_mode_guard = match RawModeGuard::enable() {
+            Ok(guard) => guard,
+            Err(err) => {
+                eprintln!("\nFailed to enable hidden terminal input: {err}");
+                std::process::exit(1);
+            }
+        };
+        let mut api_key = String::new();
+        loop {
+            match read() {
+                Ok(Event::Key(key_event))
+                    if matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
+                {
+                    match key_event.code {
+                        KeyCode::Enter => break,
+                        KeyCode::Backspace => {
+                            api_key.pop();
+                        }
+                        KeyCode::Char('c')
+                            if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+                        {
+                            eprintln!();
+                            std::process::exit(130);
+                        }
+                        KeyCode::Char(character)
+                            if !key_event
+                                .modifiers
+                                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                        {
+                            api_key.push(character);
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    eprintln!("\nFailed to read API key: {err}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        eprintln!();
+        api_key.trim().to_string()
+    } else {
+        read_stdin_secret(
+            "--feishu expects an interactive terminal or the LetsLLM API key on stdin.",
+            "Reading LetsLLM API key from stdin...",
+            "No LetsLLM API key provided.",
+        )
+    };
+
+    if api_key.is_empty() {
+        eprintln!("No LetsLLM API key provided.");
+        std::process::exit(1);
+    }
+
+    match login_with_api_key(
+        &config.codex_home,
+        &api_key,
+        config.cli_auth_credentials_store_mode,
+        config.auth_keyring_backend_kind(),
+    ) {
+        Ok(_) => {
+            eprintln!("{LOGIN_SUCCESS_MESSAGE}");
+            std::process::exit(0);
+        }
+        Err(err) => {
+            eprintln!("Error logging in with LetsLLM API key: {err}");
             std::process::exit(1);
         }
     }

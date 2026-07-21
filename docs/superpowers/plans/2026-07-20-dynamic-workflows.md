@@ -18,7 +18,7 @@
 - Keep all model-visible fragments bounded and below repository context-size limits.
 - Add only app-server v2 APIs; do not change v1.
 - Preserve old rollout deserialization and thread-history projection semantics.
-- Do not overwrite the existing uncommitted concurrency or TUI changes.
+- Do not overwrite the existing uncommitted Feishu, provider URL, concurrency, or TUI changes.
 - Do not commit or create branches unless the user explicitly requests it.
 - After Rust changes, run scoped tests, then `just fix -p <crate>` where applicable, and finish with `just fmt` without rerunning tests afterward.
 
@@ -635,7 +635,7 @@ Expected: all exec workflow and existing event processor tests pass.
 
 - [ ] **Step 1: Re-read root `AGENTS.md` and review the complete diff**
 
-Check for instruction drift, unrelated formatting, large modules, unbounded model context, missing Bazel data, public API growth, and changed rollout semantics.
+Check for instruction drift, unrelated formatting, accidental changes to the existing Feishu/provider work, large modules, unbounded model context, missing Bazel data, public API growth, and changed rollout semantics.
 
 - [ ] **Step 2: Run targeted crate tests in dependency order**
 

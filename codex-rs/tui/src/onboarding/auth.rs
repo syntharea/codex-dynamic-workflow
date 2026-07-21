@@ -91,9 +91,12 @@ pub(crate) enum SignInOption {
     ChatGpt,
     DeviceCode,
     ApiKey,
+    Feishu,
 }
 
 const API_KEY_DISABLED_MESSAGE: &str = "API key login is disabled.";
+const LETSLLM_FEISHU_LOGIN_URL: &str = "https://api.letsllm.com/oauth/feishu";
+const LETSLLM_API_KEYS_URL: &str = "https://api.letsllm.com/keys";
 fn onboarding_request_id() -> codex_app_server_protocol::RequestId {
     codex_app_server_protocol::RequestId::String(Uuid::new_v4().to_string())
 }
@@ -112,10 +115,18 @@ pub(super) async fn cancel_login_attempt(
         .await;
 }
 
+#[derive(Clone, Copy, Default)]
+enum ApiKeyProvider {
+    #[default]
+    OpenAi,
+    LetsLlm,
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct ApiKeyInputState {
     value: String,
     prepopulated_from_env: bool,
+    provider: ApiKeyProvider,
 }
 
 #[derive(Clone)]
@@ -196,6 +207,10 @@ impl KeyboardHandler for AuthModeWidget {
         }
         if keys::SELECT_THIRD.is_pressed(key_event) {
             self.select_option_by_index(/*index*/ 2);
+            return;
+        }
+        if keys::SELECT_FOURTH.is_pressed(key_event) {
+            self.select_option_by_index(/*index*/ 3);
             return;
         }
         if keys::CONFIRM.is_pressed(key_event) {
@@ -319,6 +334,7 @@ impl AuthModeWidget {
         }
         if self.is_api_login_allowed() {
             options.push(SignInOption::ApiKey);
+            options.push(SignInOption::Feishu);
         }
         options
     }
@@ -331,6 +347,7 @@ impl AuthModeWidget {
         }
         if self.is_api_login_allowed() {
             options.push(SignInOption::ApiKey);
+            options.push(SignInOption::Feishu);
         }
         options
     }
@@ -372,6 +389,13 @@ impl AuthModeWidget {
             SignInOption::ApiKey => {
                 if self.is_api_login_allowed() {
                     self.start_api_key_entry();
+                } else {
+                    self.disallow_api_login();
+                }
+            }
+            SignInOption::Feishu => {
+                if self.is_api_login_allowed() {
+                    self.start_feishu_login();
                 } else {
                     self.disallow_api_login();
                 }
@@ -459,6 +483,14 @@ impl AuthModeWidget {
                         option,
                         "Provide your own API key",
                         "Pay for what you use",
+                    ));
+                }
+                SignInOption::Feishu => {
+                    lines.extend(create_mode_item(
+                        idx,
+                        option,
+                        "Sign in with Feishu",
+                        "Use your LetsLLM account and generated API key",
                     ));
                 }
             }
@@ -622,15 +654,28 @@ impl AuthModeWidget {
         ])
         .areas(area);
 
-        let mut intro_lines: Vec<Line> = vec![
-            Line::from(vec![
-                "> ".into(),
-                "Use your own OpenAI API key for usage-based billing".bold(),
-            ]),
-            "".into(),
-            "  Paste or type your API key below. It will be stored locally in auth.json.".into(),
-            "".into(),
-        ];
+        let mut intro_lines: Vec<Line> = match state.provider {
+            ApiKeyProvider::OpenAi => vec![
+                Line::from(vec![
+                    "> ".into(),
+                    "Use your own OpenAI API key for usage-based billing".bold(),
+                ]),
+                "".into(),
+                "  Paste or type your API key below. It will be stored locally in auth.json."
+                    .into(),
+                "".into(),
+            ],
+            ApiKeyProvider::LetsLlm => vec![
+                Line::from(vec![
+                    "> ".into(),
+                    "Sign in with Feishu and connect your LetsLLM account".bold(),
+                ]),
+                "".into(),
+                format!("  Complete sign-in in your browser, then create an API key at {LETSLLM_API_KEYS_URL}.").into(),
+                "  Paste the generated key below. It will be stored locally in auth.json.".into(),
+                "".into(),
+            ],
+        };
         if state.prepopulated_from_env {
             intro_lines.push("  Detected OPENAI_API_KEY environment variable.".into());
             intro_lines.push(
@@ -768,6 +813,19 @@ impl AuthModeWidget {
     }
 
     fn start_api_key_entry(&mut self) {
+        self.start_api_key_entry_for(ApiKeyProvider::OpenAi);
+    }
+
+    fn start_feishu_login(&mut self) {
+        self.start_api_key_entry_for(ApiKeyProvider::LetsLlm);
+        if let Err(err) = webbrowser::open(LETSLLM_FEISHU_LOGIN_URL) {
+            self.set_error(Some(format!(
+                "Could not open Feishu sign-in automatically: {err}. Open {LETSLLM_FEISHU_LOGIN_URL} manually."
+            )));
+        }
+    }
+
+    fn start_api_key_entry_for(&mut self, provider: ApiKeyProvider) {
         if !self.is_api_login_allowed() {
             self.disallow_api_login();
             return;
@@ -777,6 +835,7 @@ impl AuthModeWidget {
         let mut guard = self.sign_in_state.write().unwrap();
         match &mut *guard {
             SignInState::ApiKeyEntry(state) => {
+                state.provider = provider;
                 if state.value.is_empty() {
                     if let Some(prefill) = prefill_from_env {
                         state.value = prefill;
@@ -790,6 +849,7 @@ impl AuthModeWidget {
                 *guard = SignInState::ApiKeyEntry(ApiKeyInputState {
                     value: prefill_from_env.clone().unwrap_or_default(),
                     prepopulated_from_env: prefill_from_env.is_some(),
+                    provider,
                 });
             }
         }
@@ -803,6 +863,15 @@ impl AuthModeWidget {
             return;
         }
         self.set_error(/*message*/ None);
+        let provider = self
+            .sign_in_state
+            .read()
+            .ok()
+            .and_then(|guard| match &*guard {
+                SignInState::ApiKeyEntry(state) => Some(state.provider),
+                _ => None,
+            })
+            .unwrap_or_default();
         let request_handle = self.app_server_request_handle.clone();
         let sign_in_state = self.sign_in_state.clone();
         let error = self.error.clone();
@@ -828,6 +897,7 @@ impl AuthModeWidget {
                     *sign_in_state.write().unwrap() = SignInState::ApiKeyEntry(ApiKeyInputState {
                         value: api_key,
                         prepopulated_from_env: false,
+                        provider,
                     });
                 }
                 Err(err) => {
@@ -835,6 +905,7 @@ impl AuthModeWidget {
                     *sign_in_state.write().unwrap() = SignInState::ApiKeyEntry(ApiKeyInputState {
                         value: api_key,
                         prepopulated_from_env: false,
+                        provider,
                     });
                 }
             }
@@ -1019,6 +1090,7 @@ pub(super) fn maybe_open_auth_url_in_browser(request_handle: &AppServerRequestHa
 mod tests {
     use super::*;
     use crate::legacy_core::config::ConfigBuilder;
+    use crate::test_backend::VT100Backend;
     use codex_app_server_client::AppServerRequestHandle;
     use codex_app_server_client::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
     use codex_app_server_client::InProcessAppServerClient;
@@ -1029,6 +1101,7 @@ mod tests {
     use codex_login::AuthKeyringBackendKind;
 
     use pretty_assertions::assert_eq;
+    use ratatui::Terminal;
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -1102,6 +1175,28 @@ mod tests {
             &*widget.sign_in_state.read().unwrap(),
             SignInState::PickMode
         ));
+    }
+
+    #[tokio::test]
+    async fn standard_login_picker_includes_four_options() {
+        let (mut widget, _tmp) = widget_forced_chatgpt().await;
+        widget.forced_login_method = None;
+
+        assert_eq!(widget.displayed_sign_in_options().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn renders_login_picker_with_feishu() {
+        let (mut widget, _tmp) = widget_forced_chatgpt().await;
+        widget.forced_login_method = None;
+
+        let mut terminal =
+            Terminal::new(VT100Backend::new(/*width*/ 76, /*height*/ 20)).expect("terminal");
+        terminal
+            .draw(|frame| widget.render_ref(frame.area(), frame.buffer_mut()))
+            .expect("draw");
+
+        insta::assert_snapshot!(terminal.backend());
     }
 
     #[tokio::test]
